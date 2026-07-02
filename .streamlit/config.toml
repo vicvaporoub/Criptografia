@@ -1,0 +1,4 @@
+# Configuración de tema de Streamlit
+# baseFontSize escala TODO el texto de la app (por defecto es 16).
+[theme]
+baseFontSize = 23
