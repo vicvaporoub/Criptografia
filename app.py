@@ -133,6 +133,8 @@ def iniciar_sesion(usuario: str) -> None:
     """Marca la sesión como iniciada (autenticación SIMULADA)."""
     st.session_state["logueado"] = True
     st.session_state["usuario"] = usuario
+    st.session_state["rol"] = "Superusuario" if usuario == "root" else "Empleado"
+
 
 
 def cerrar_sesion() -> None:
@@ -165,8 +167,8 @@ def vista_login() -> None:
                 enviar = st.form_submit_button("Ingresar al sistema", use_container_width=True, type="primary")
 
             if enviar:
-                if usuario.strip() == "root":
-                    iniciar_sesion("root")
+                if usuario.strip() in ["root", "alice", "bob"]:
+                    iniciar_sesion(usuario)  # ← Pasa el usuario real
                     st.rerun()
                 else:
                     st.error("Credenciales inválidas o cuenta bloqueada. Evento registrado en logs.")
@@ -505,7 +507,7 @@ def barra_lateral() -> str:
     """Dibuja el menú lateral y devuelve la vista seleccionada."""
     with st.sidebar:
         st.markdown("## Documentos Seguros")
-        st.markdown(f"**{st.session_state['usuario']}** · `Superusuario`")
+        st.markdown(f"**{st.session_state['usuario']}** · `{st.session_state['rol']}`")
         st.divider()
 
         vista = st.radio(
@@ -554,7 +556,10 @@ def main() -> None:
     elif vista == "Identidad y Llaves":
         vista_llaves()
     elif vista == "Administración":
-        vista_admin()
+        if st.session_state.get("rol") == "Superusuario":
+            vista_admin()
+        else:
+            st.error("Acceso denegado: Solo superusuarios pueden acceder")
 
 
 if __name__ == "__main__":
