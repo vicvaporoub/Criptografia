@@ -345,26 +345,55 @@ def vista_llaves() -> None:
             registrar_log("WARNING", "EXPORTACION_LLAVE_PRIVADA", st.session_state["usuario"], "El usuario exportó sus certificados privados desde la consola web.")
             st.success("Llave privada exportada y cifrada con su frase de seguridad.")
 
-    # ------------------------ Generar par de llaves -----------------------
+# ------------------------ Generar par de llaves -----------------------
     with tab_generar:
         st.subheader("Generar un nuevo par de llaves reales")
         st.markdown("Este proceso generará tus identidades reales: **Ed25519** para firmas y **X25519** para cifrado.")
         passphrase_gen = st.text_input("Asigna una frase de seguridad para proteger tus llaves privadas", type="password", key="pass_real_gen")
         
+        # Inicializar variables en la memoria de Streamlit para que no se borren
+        if "llaves_generadas" not in st.session_state:
+            st.session_state["llaves_generadas"] = False
+            st.session_state["pem_priv_f"] = b""
+            st.session_state["pem_priv_c"] = b""
+
         if st.button("Generar e Inscribir Llaves", type="primary", disabled=len(passphrase_gen) < 4):
             with st.spinner("Efectuando cálculos de curvas elípticas de manera segura..."):
                 try:
                     pem_priv_f, pem_pub_f, pem_priv_c, pem_pub_c = crypto.generar_par_llaves(passphrase_gen)
                     registrar_llaves_publicas(st.session_state["usuario"], pem_pub_f, pem_pub_c)
                     
+                    # Guardamos los resultados en el estado de la sesión para congelarlos
+                    st.session_state["llaves_generadas"] = True
+                    st.session_state["pem_priv_f"] = pem_priv_f
+                    st.session_state["pem_priv_c"] = pem_priv_c
+                    
                     # REQUISITO DE AUDITORÍA: Ciclo de vida de llaves criptográficas
                     registrar_log("INFO", "GENERACION_LLAVES", st.session_state["usuario"], "Inscripción exitosa del nuevo par de llaves públicas Ed25519/X25519.")
-                    
-                    st.success("🎉 ¡Llaves públicas vinculadas con éxito! Descarga tus llaves privadas obligatoriamente:")
-                    st.download_button("💾 Descargar Llave Privada de Firma (Ed25519)", data=pem_priv_f, file_name=f"priv_firma_{st.session_state['usuario']}.pem", use_container_width=True)
-                    st.download_button("💾 Descargar Llave Privada de Cifrado (X25519)", data=pem_priv_c, file_name=f"priv_cifrado_{st.session_state['usuario']}.pem", use_container_width=True)
+                    st.success("🎉 ¡Llaves públicas vinculadas con éxito en el servidor! Ahora puedes descargar tus llaves privadas tranquilamente abajo:")
                 except Exception as e:
                     st.error(f"Error generando llaves: {str(e)}")
+
+        # Si ya fueron generadas en esta sesión, mostramos los botones de forma persistente
+        if st.session_state["llaves_generadas"]:
+            st.markdown("---")
+            st.markdown("⚠️ *Descarga ambos archivos antes de cambiar de pestaña o cerrar sesión.*")
+            
+            st.download_button(
+                "💾 Descargar Llave Privada de Firma (Ed25519)", 
+                data=st.session_state["pem_priv_f"], 
+                file_name=f"priv_firma_{st.session_state['usuario']}.pem", 
+                use_container_width=True,
+                key="btn_descarga_firma"
+            )
+            
+            st.download_button(
+                "💾 Descargar Llave Privada de Cifrado (X25519)", 
+                data=st.session_state["pem_priv_c"], 
+                file_name=f"priv_cifrado_{st.session_state['usuario']}.pem", 
+                use_container_width=True,
+                key="btn_descarga_cifrado"
+            )
 
     # ------------------------ Gestionar contraseña ------------------------
     with tab_pass:
