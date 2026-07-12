@@ -13,6 +13,7 @@ import sqlite3
 import json
 import secrets
 from datetime import datetime
+import base64
 
 DB_NAME = "seguridad.db"
 
@@ -134,41 +135,54 @@ def obtener_llave_publica_firma(usuario: str) -> bytes:
 
 def guardar_paquete_archivo(emisor: str, destinatario: str, paquete_json: str) -> bool:
     """
-    Desempaqueta el JSON enviado por app.py y mapea sus propiedades a las 
-    columnas individuales de tu tabla de paquetes de forma limpia.
+    Recibe el JSON en Base64 de crypto.py, lo homologa a Hexadecimal
+    y lo almacena en la base de datos relacional.
     """
     try:
         datos = json.loads(paquete_json)
-        # Extraemos los campos buscando nombres estándar del criptosistema
-        nombre = datos.get("nombre_archivo") or datos.get("nombre", "archivo.bin")
-        texto_hex = datos.get("texto_cifrado_hex") or datos.get("contenido_cifrado", "")
-        iv_hex = datos.get("iv_hex") or datos.get("nonce_aes", "")
-        llave_pub_efemera = datos.get("llave_efemera_pub") or datos.get("llave_publica_efemera") or ""
-        firma_hex = datos.get("firma_digital_hex") or datos.get("firma", "")
-        nonce = datos.get("nonce_protocolo") or datos.get("nonce", "")
-        timestamp = datos.get("timestamp") or datetime.now().isoformat()
+        
+        # 1. Extraer los datos en Base64 del JSON de crypto.py
+        nombre = datos.get("nombre_archivo")
+        id_unico = datos.get("id_unico")
+        timestamp = datos.get("timestamp")
+        
+        nonce_gcm_b64 = datos.get("nonce_gcm")
+        pub_efimera_b64 = datos.get("pub_efimera_emisor")
+        texto_cifrado_b64 = datos.get("texto_cifrado")
+        firma_digital_b64 = datos.get("firma_digital")
+        
+        # 2. Homologar: Convertir de Base64 a HEX para cumplir con el esquema de la BD
+        texto_hex = base64.b64decode(texto_cifrado_b64).hex()
+        iv_hex = base64.b64decode(nonce_gcm_b64).hex()
+        firma_hex = base64.b64decode(firma_digital_b64).hex()
+        
+        # La llave pública efímera la guardamos como el texto PEM original (decodificado de B64)
+        llave_pub_efemera = base64.b64decode(pub_efimera_b64).decode('utf-8')
         
         with obtener_conexion() as conn:
             conn.execute("""
                 INSERT INTO paquetes_archivos 
-                (emisor, destinatario, archivo_nombre, texto_cifrado_hex, iv_hex, llave_efemera_pub, firma_digital_hex, nonce_protocolo, timestamp)
+                (emisor, destinatario, archivo_nombre, texto_cifrado_hex, iv_hex, 
+                llave_efemera_pub, firma_digital_hex, nonce_protocolo, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (emisor, destinatario, nombre, texto_hex, iv_hex, llave_pub_efemera, firma_hex, nonce, timestamp))
+            """, (emisor, destinatario, nombre, texto_hex, iv_hex, 
+                llave_pub_efemera, firma_hex, id_unico, timestamp))
             conn.commit()
         return True
     except sqlite3.IntegrityError:
-        # Si salta esta excepción es porque el nonce_protocolo violó la regla UNIQUE (Ataque de repetición)
+        # Si el id_unico ya existía, detiene el ataque de repetición
         return False
 
 def obtener_paquetes_recibidos(usuario: str) -> list:
     """
-    Busca los paquetes destinados al usuario y reconstruye dinámicamente el JSON 
-    para que la interfaz de descifrado en app.py lo procese sin alterar tu esquema relacional.
+    Recupera los datos en HEX de la BD, los convierte a Base64 y reconstruye
+    el JSON original para que crypto.py pueda descifrarlo sin problemas.
     """
     with obtener_conexion() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT emisor, archivo_nombre, texto_cifrado_hex, iv_hex, llave_efemera_pub, firma_digital_hex, nonce_protocolo, timestamp 
+            SELECT emisor, archivo_nombre, texto_cifrado_hex, iv_hex, 
+                llave_efemera_pub, firma_digital_hex, nonce_protocolo, timestamp 
             FROM paquetes_archivos 
             WHERE destinatario = ?
         """, (usuario,))
@@ -176,15 +190,24 @@ def obtener_paquetes_recibidos(usuario: str) -> list:
         
         resultado = []
         for row in rows:
+            # Convertir de HEX de vuelta a Base64 para el motor de crypto.py
+            nonce_gcm_b64 = base64.b64encode(bytes.fromhex(row["iv_hex"])).decode('utf-8')
+            texto_cifrado_b64 = base64.b64encode(bytes.fromhex(row["texto_cifrado_hex"])).decode('utf-8')
+            firma_digital_b64 = base64.b64encode(bytes.fromhex(row["firma_digital_hex"])).decode('utf-8')
+            
+            # La llave efímera ya estaba en PEM (texto), solo la pasamos a B64 como lo pide crypto.py
+            pub_efimera_b64 = base64.b64encode(row["llave_efemera_pub"].encode('utf-8')).decode('utf-8')
+            
             paquete_dict = {
                 "nombre_archivo": row["archivo_nombre"],
-                "texto_cifrado_hex": row["texto_cifrado_hex"],
-                "iv_hex": row["iv_hex"],
-                "llave_efemera_pub": row["llave_efemera_pub"],
-                "firma_digital_hex": row["firma_digital_hex"],
-                "nonce_protocolo": row["nonce_protocolo"],
-                "timestamp": row["timestamp"]
+                "id_unico": row["nonce_protocolo"],
+                "timestamp": row["timestamp"],
+                "nonce_gcm": nonce_gcm_b64,
+                "pub_efimera_emisor": pub_efimera_b64,
+                "texto_cifrado": texto_cifrado_b64,
+                "firma_digital": firma_digital_b64
             }
+            
             resultado.append({
                 "remitente": row["emisor"],
                 "paquete_json": json.dumps(paquete_dict)
