@@ -13,6 +13,7 @@ import streamlit as st
 
 from auth import registrar_usuario
 from auth import iniciar_sesion as login_usuario
+from auth import bloquear_usuario, desbloquear_usuario  
 
 from database import (
     inicializar_bd,
@@ -114,6 +115,7 @@ def vista_login() -> None:
                     st.error(respuesta)
 
         # ------------------------ Registrar usuario -----------------------
+
         with tab_registro:
             with st.form("form_registro"):
                 nuevo_usuario = st.text_input("Nuevo usuario")
@@ -481,21 +483,21 @@ def vista_admin() -> None:
             c_bloq, c_desb = st.columns(2)
             
             # ACCIONES CON LOGS REALES VINCULADOS DE FORMA CONTRACTUAL
-            if c_bloq.button("Bloquear cuenta de usuario", use_container_width=True):
-                if motivo:
-                    # REQUISITO DE AUDITORÍA: Gestión administrativa de accesos (Bloqueos manuales)
-                    registrar_log("CRITICAL", "BLOQUEO_CUENTA", st.session_state["usuario"], f"El Administrador bloqueó la cuenta de '{objetivo}'. Motivo: {motivo}")
-                    st.error(f"La cuenta de **{objetivo}** ha sido bloqueada. Evento asentado en el registro histórico.")
-                else:
-                    st.warning("Por requerimiento inmutable de auditoría, debes ingresar un motivo justificable antes de proceder.")
+        if c_bloq.button("Bloquear cuenta de usuario", use_container_width=True):
+            if motivo:
+                bloquear_usuario(objetivo)  # ← AQUÍ
+                registrar_log("CRITICAL", "BLOQUEO_CUENTA", st.session_state["usuario"], f"El Administrador bloqueó la cuenta de '{objetivo}'. Motivo: {motivo}")
+                st.error(f"La cuenta de **{objetivo}** ha sido bloqueada. Evento asentado en el registro histórico.")
+            else:
+                st.warning("Por requerimiento inmutable de auditoría, debes ingresar un motivo justificable antes de proceder.")
 
-            if c_desb.button("Desbloquear cuenta de usuario", use_container_width=True):
-                if motivo:
-                    # REQUISITO DE AUDITORÍA: Gestión administrativa de accesos (Desbloqueos)
-                    registrar_log("CRITICAL", "DESBLOQUEO_CUENTA", st.session_state["usuario"], f"El Administrador desbloqueó la cuenta de '{objetivo}'. Motivo: {motivo}")
-                    st.success(f"La cuenta de **{objetivo}** ha sido reactivada. Evento asentado en el registro histórico.")
-                else:
-                    st.warning("Por requerimiento inmutable de auditoría, debes ingresar un motivo justificable antes de proceder.")
+        if c_desb.button("Desbloquear cuenta de usuario", use_container_width=True):
+            if motivo:
+                desbloquear_usuario(objetivo)  # ← AQUÍ
+                registrar_log("CRITICAL", "DESBLOQUEO_CUENTA", st.session_state["usuario"], f"El Administrador desbloqueó la cuenta de '{objetivo}'. Motivo: {motivo}")
+                st.success(f"La cuenta de **{objetivo}** ha sido reactivada. Evento asentado en el registro histórico.")
+            else:
+                st.warning("Por requerimiento inmutable de auditoría, debes ingresar un motivo justificable antes de proceder.")
         else:
             st.info("No hay otros usuarios registrados en el sistema para gestionar bloqueos.")
 
