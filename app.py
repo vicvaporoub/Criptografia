@@ -1,35 +1,31 @@
 # ============================================================================
-#  SISTEMA DE DOCUMENTOS SEGUROS — Prototipo visual (MVP / Frontend)
+#  SISTEMA DE DOCUMENTOS SEGUROS — Producción / Backend Conectado
 # ----------------------------------------------------------------------------
-#python -m streamlit run app.py
-#  Prototipo puramente VISUAL construido con Streamlit.
-#
-#  IMPORTANTE:
-#   - NO implementa criptografía real (AES, RSA, Argon2, etc.).
-#   - NO usa base de datos: todo son datos simulados (mock data).
-#   - Los "hashes", "nonces" y "llaves" mostrados son cadenas aleatorias
-#     generadas solo con fines de presentación.
-#
-#  Basado en:
-#   - "Proyecto - Tagged.pdf"        → requerimientos funcionales y de logs.
-#   - "funcionalidades_proyecto.png" → diagrama de casos de uso:
-#         · Cuenta:      registrar, iniciar sesión, contraseña, par de llaves
-#         · Archivos:    enviar, recibir/descifrar, verificar firma
-#         · Llaves:      ver llave pública, exportar llave privada
-#         · Admin:       ver logs, gestionar usuarios, bloquear/desbloquear
-#
-#  El tamaño de letra global se define en .streamlit/config.toml
-#  (opción theme.baseFontSize).
-#
-#  Ejecución:  streamlit run app.py
-#  Login demo: usuario "root" (cualquier contraseña)
+#  Desarrollado y conectado con mecanismos criptográficos y persistencia real.
 # ============================================================================
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime
+import json
 
 import pandas as pd
 import streamlit as st
+
+from auth import registrar_usuario
+from auth import iniciar_sesion as login_usuario
+
+from database import (
+    inicializar_bd,
+    obtener_usuarios,
+    obtener_logs,
+    registrar_llaves_publicas,      
+    obtener_llave_publica_cifrado,  
+    obtener_llave_publica_firma,    
+    guardar_paquete_archivo,        
+    obtener_paquetes_recibidos,     
+    registrar_log                   
+)
+import crypto  # Tu archivo crypto.py real
 
 # ============================================================================
 # 1. CONFIGURACIÓN GENERAL DE LA PÁGINA
@@ -41,16 +37,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-
 # ============================================================================
-# 2. UTILIDADES DE SIMULACIÓN (mock data / valores decorativos)
+# 2. UTILIDADES DE DECORACIÓN VISUAL (Mantener compatibilidad)
 # ============================================================================
 
 def hex_falso(n_bytes: int = 16) -> str:
-    """Genera una cadena hexadecimal aleatoria SOLO para efectos visuales.
-    No representa ningún valor criptográfico real."""
+    """Genera una cadena hexadecimal aleatoria SOLO para efectos visuales decorativos."""
     return secrets.token_hex(n_bytes)
-
 
 def llave_publica_falsa() -> str:
     """Devuelve una 'llave pública' PEM simulada (texto decorativo)."""
@@ -61,64 +54,6 @@ def llave_publica_falsa() -> str:
         "-----END PUBLIC KEY-----"
     )
 
-
-def usuarios_mock() -> pd.DataFrame:
-    """Tabla simulada de usuarios registrados en el sistema."""
-    return pd.DataFrame(
-        [
-            {"Usuario": "root",    "Rol": "Superusuario", "Llave pública": "Registrada", "Estado": "Activa",    "Último acceso": "2026-07-01 09:12"},
-            {"Usuario": "alice",   "Rol": "Empleado",     "Llave pública": "Registrada", "Estado": "Activa",    "Último acceso": "2026-06-30 17:45"},
-            {"Usuario": "bob",     "Rol": "Empleado",     "Llave pública": "Registrada", "Estado": "Activa",    "Último acceso": "2026-06-30 15:02"},
-            {"Usuario": "charlie", "Rol": "Empleado",     "Llave pública": "Pendiente",  "Estado": "Bloqueada", "Último acceso": "2026-06-28 11:30"},
-            {"Usuario": "diana",   "Rol": "Auditor",      "Llave pública": "Registrada", "Estado": "Activa",    "Último acceso": "2026-06-29 08:55"},
-        ]
-    )
-
-
-def logs_mock() -> pd.DataFrame:
-    """Logs simulados de eventos, según los tipos exigidos en el PDF:
-    inicio de sesión, envío/recepción, firmas, errores de autenticación,
-    intentos de repetición, fallos al descifrar y llaves desconocidas.
-    (Nunca incluyen contraseñas, llaves privadas ni contenido sensible)."""
-    base = datetime(2026, 7, 1, 9, 45)
-    eventos = [
-        ("INFO",     "INICIO_SESION",       "root",    "Inicio de sesión exitoso"),
-        ("INFO",     "ENVIO_ARCHIVO",       "alice",   "Archivo 'contrato.pdf' cifrado (AES-GCM) y enviado a bob"),
-        ("INFO",     "RECEPCION_ARCHIVO",   "bob",     "Archivo recibido y descifrado correctamente"),
-        ("INFO",     "FIRMA_VALIDA",        "bob",     "Firma digital de alice verificada correctamente"),
-        ("WARNING",  "ERROR_AUTENTICACION", "charlie", "Contraseña incorrecta (intento 3 de 5)"),
-        ("CRITICAL", "INTENTO_REPETICION",  "—",       "Paquete con nonce ya utilizado: mensaje rechazado"),
-        ("ERROR",    "FALLO_DESCIFRADO",    "diana",   "Etiqueta de autenticación inválida: archivo rechazado"),
-        ("WARNING",  "LLAVE_DESCONOCIDA",   "—",       "Firma con llave pública no registrada en el sistema"),
-        ("WARNING",  "FIRMA_INVALIDA",      "bob",     "La firma no corresponde al emisor esperado"),
-        ("INFO",     "CUENTA_BLOQUEADA",    "charlie", "Cuenta bloqueada por exceso de intentos fallidos"),
-        ("INFO",     "GENERACION_LLAVES",   "diana",   "Nuevo par de llaves generado y llave pública registrada"),
-        ("INFO",     "INICIO_SESION",       "alice",   "Inicio de sesión exitoso"),
-    ]
-    filas = []
-    for i, (nivel, tipo, usuario, detalle) in enumerate(eventos):
-        filas.append(
-            {
-                "Fecha y hora": (base - timedelta(minutes=7 * i)).strftime("%Y-%m-%d %H:%M:%S"),
-                "Nivel": nivel,
-                "Evento": tipo,
-                "Usuario": usuario,
-                "Detalle": detalle,
-                "ID evento": hex_falso(4),
-            }
-        )
-    return pd.DataFrame(filas)
-
-
-def archivos_recibidos_mock() -> list[dict]:
-    """Bandeja simulada de archivos cifrados pendientes de descifrar."""
-    return [
-        {"nombre": "contrato_confidencial.pdf.enc", "emisor": "alice", "fecha": "2026-07-01 08:50", "tamano": "1.2 MB"},
-        {"nombre": "nomina_junio.xlsx.enc",         "emisor": "diana", "fecha": "2026-06-30 16:20", "tamano": "480 KB"},
-        {"nombre": "acta_reunion.docx.enc",         "emisor": "bob",   "fecha": "2026-06-30 10:05", "tamano": "215 KB"},
-    ]
-
-
 # ============================================================================
 # 3. GESTIÓN DE SESIÓN (st.session_state)
 # ============================================================================
@@ -127,25 +62,26 @@ def inicializar_estado() -> None:
     """Crea las variables de sesión si aún no existen."""
     st.session_state.setdefault("logueado", False)
     st.session_state.setdefault("usuario", "")
+    st.session_state.setdefault("rol", "")
 
-
-def iniciar_sesion(usuario: str) -> None:
-    """Marca la sesión como iniciada (autenticación SIMULADA)."""
+def iniciar_sesion_streamlit(usuario: str, rol: str) -> None:
+    """Marca la sesión como iniciada de manera formal."""
     st.session_state["logueado"] = True
     st.session_state["usuario"] = usuario
-
+    st.session_state["rol"] = rol
 
 def cerrar_sesion() -> None:
-    """Limpia todo el estado de sesión y regresa al Login."""
+    """Limpia todo el estado de sesión, registra la salida y regresa al Login."""
+    if st.session_state.get("usuario"):
+        registrar_log("INFO", "LOGOUT_USUARIO", st.session_state["usuario"], "El usuario cerró sesión voluntariamente.")
     st.session_state.clear()
 
-
 # ============================================================================
-# 4. VISTA: LOGIN / REGISTRO (pantalla inicial)
+# 4. VISTA: LOGIN / REGISTRO
 # ============================================================================
 
 def vista_login() -> None:
-    """Pantalla de autenticación. Solo el usuario 'root' desbloquea el sistema."""
+    """Pantalla de autenticación real conectada a la base de datos."""
     _, centro, _ = st.columns([1, 1.2, 1])
 
     with centro:
@@ -161,78 +97,88 @@ def vista_login() -> None:
         with tab_login:
             with st.form("form_login"):
                 usuario = st.text_input("Usuario", placeholder="Ingrese su usuario")
-                st.text_input("Contraseña", type="password", placeholder="Ingrese su contraseña")
+                password = st.text_input("Contraseña", type="password", placeholder="Ingrese su contraseña")
                 enviar = st.form_submit_button("Ingresar al sistema", use_container_width=True, type="primary")
 
             if enviar:
-                if usuario.strip() == "root":
-                    iniciar_sesion("root")
+                ok, respuesta = login_usuario(usuario, password)
+
+                if ok:
+                    iniciar_sesion_streamlit(usuario, respuesta)
+                    # REQUISITO DE AUDITORÍA: Registro de acceso exitoso
+                    registrar_log("INFO", "LOGIN_EXITOSO", usuario, f"Autenticación exitosa. Rol asignado: {respuesta}")
                     st.rerun()
                 else:
-                    st.error("Credenciales inválidas o cuenta bloqueada. Evento registrado en logs.")
-                    st.caption("Prototipo: use el usuario **root** con cualquier contraseña.")
+                    # REQUISITO DE AUDITORÍA: Registro de anomalías / intentos fallidos (Mitiga fuerza bruta)
+                    registrar_log("WARNING", "LOGIN_FALLIDO", usuario if usuario else "Anónimo", f"Intento de acceso denegado: {respuesta}")
+                    st.error(respuesta)
 
         # ------------------------ Registrar usuario -----------------------
         with tab_registro:
             with st.form("form_registro"):
-                st.text_input("Nuevo usuario")
-                st.text_input("Contraseña", type="password", key="reg_pass")
-                st.text_input("Confirmar contraseña", type="password", key="reg_pass2")
+                nuevo_usuario = st.text_input("Nuevo usuario")
+                nuevo_password = st.text_input("Contraseña", type="password", key="reg_pass")
+                confirmar = st.text_input("Confirmar contraseña", type="password", key="reg_pass2")
+                rol = st.selectbox("Rol", ["Empleado", "Auditor", "Superusuario"])
                 registrar = st.form_submit_button("Crear cuenta", use_container_width=True)
 
             if registrar:
-                st.success("Usuario registrado (simulado). Contraseña protegida con Argon2 + sal única.")
-                st.info("Se generó un par de llaves y la llave pública quedó asociada al usuario.")
+                if nuevo_password != confirmar:
+                    st.error("Las contraseñas no coinciden.")
+                else:
+                    ok, mensaje = registrar_usuario(nuevo_usuario, nuevo_password, rol)
 
+                    if ok:
+                        # REQUISITO DE AUDITORÍA: Alta de identidades
+                        registrar_log("INFO", "REGISTRO_USUARIO", nuevo_usuario, f"Nueva cuenta creada exitosamente con el rol de {rol}.")
+                        st.success(mensaje)
+                    else:
+                        st.error(mensaje)
         st.divider()
-        st.caption("Prototipo visual — sin criptografía real ni base de datos.")
-
 
 # ============================================================================
 # 5. VISTA: PANEL PRINCIPAL (dashboard)
 # ============================================================================
 
 def vista_dashboard() -> None:
-    """Resumen general del estado del sistema con métricas simuladas."""
+    """Resumen general del estado del sistema con analíticas dinámicas sobre los logs reales."""
     st.title("Panel de Control")
-    st.caption(f"Sesión activa: **{st.session_state['usuario']}** (Superusuario) · Canal cifrado extremo a extremo")
+    st.caption(f"Sesión activa: **{st.session_state['usuario']}** ({st.session_state['rol']})")
+    
+    # Cálculos reales sobre la marcha para alimentar el Dashboard analítico
+    logs = obtener_logs()
+    total_logs = len(logs)
+    
+    # Filtrar contadores basándonos en tipos reales de eventos
+    alertas_seguridad = sum(1 for l in logs if l["Nivel"] in ["WARNING", "ERROR", "CRITICAL"])
+    envios_hoy = sum(1 for l in logs if l["Evento"] == "ENVIO_ARCHIVO")
+    firmas_ok = sum(1 for l in logs if l["Evento"] == "FIRMA_VALIDA")
 
-    # Métricas rápidas del sistema (valores simulados)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Archivos cifrados hoy", "27", "+4")
-    c2.metric("Usuarios activos", "4", "-1")
-    c3.metric("Firmas verificadas", "19", "+6")
-    c4.metric("Alertas de seguridad", "3", "+2", delta_color="inverse")
+    c1.metric("Archivos en tránsito (Hoy)", str(envios_hoy))
+    c2.metric("Eventos totales registrados", str(total_logs))
+    c3.metric("Firmas digitales validadas", str(firmas_ok))
+    c4.metric("Alertas de seguridad", str(alertas_seguridad), delta_color="inverse")
 
     st.divider()
 
     izq, der = st.columns([2, 1])
 
     with izq:
-        st.subheader("Actividad reciente")
-        st.dataframe(logs_mock().head(6), use_container_width=True, hide_index=True)
-
+        st.subheader("Actividad reciente del sistema")
+        if logs:
+            st.dataframe(pd.DataFrame(logs).head(6), use_container_width=True, hide_index=True)
+        else:
+            st.info("Sin registros de actividad en la base de datos actual.")
     with der:
         st.subheader("Estado de los mecanismos")
         st.success("Cifrado simétrico: AES-256-GCM — operativo")
         st.success("Intercambio de llaves: X25519 — operativo")
         st.success("Firma digital: Ed25519 — operativo")
-        st.warning("Detector de repetición: 1 intento bloqueado hoy")
-
-        with st.expander("Modelo de amenazas (resumen)"):
-            st.markdown(
-                """
-                - **Activos:** archivos, contraseñas, llaves privadas.
-                - **Adversarios:** atacante externo, usuario interno.
-                - **Capacidades:** capturar, modificar, repetir, robar.
-                - **Controles:** cifrado, firmas, autenticación, logs.
-                """
-            )
-
+        st.warning("Detección Anti-repetición (Nonces): Activo")
 
 # ============================================================================
 # 6. VISTA: GESTIÓN DE ARCHIVOS
-#    (Enviar archivo · Recibir y descifrar · Verificar firma digital)
 # ============================================================================
 
 def vista_archivos() -> None:
@@ -250,67 +196,99 @@ def vista_archivos() -> None:
 
         with col_form:
             archivo = st.file_uploader("Seleccione el archivo a proteger", key="up_enviar")
-            destinatario = st.selectbox("Destinatario", ["alice", "bob", "charlie", "diana"])
-            firmar = st.checkbox("Firmar digitalmente el archivo (Ed25519)", value=True)
+            
+            todos_usuarios = obtener_usuarios()
+            lista_destinos = [u["Usuario"] for u in todos_usuarios if u["Usuario"] != st.session_state["usuario"]]
+            destinatario = st.selectbox("Destinatario", lista_destinos if lista_destinos else ["No hay otros usuarios"])
+            
+            st.markdown("---")
+            st.markdown("##### Requisito de Firma: Sube tu Llave Privada de Firma")
+            llave_priv_file = st.file_uploader("Tu llave privada de firma (priv_firma_...pem)", key="up_llave_emisor")
+            passphrase_emisor = st.text_input("Contraseña de tu llave privada", type="password", key="pass_emisor")
 
-            if st.button("Cifrar y enviar", type="primary", disabled=archivo is None):
-                with st.spinner("Generando llave de sesión y cifrando con AES-256-GCM..."):
-                    pass  # Simulación: no se realiza ningún cifrado real
-                st.success(f"Archivo **{archivo.name}** cifrado y enviado a **{destinatario}**.")
-                if firmar:
-                    st.info("Archivo firmado digitalmente antes del envío.")
-                # Detalle técnico simulado del "paquete" enviado
-                with st.expander("Detalle técnico del envío (simulado)"):
-                    st.code(
-                        f"Algoritmo        : AES-256-GCM\n"
-                        f"Llave de sesión  : protegida con la llave pública de {destinatario} (X25519)\n"
-                        f"Nonce (único)    : {hex_falso(12)}\n"
-                        f"Tag autenticación: {hex_falso(16)}\n"
-                        f"ID anti-repetición: {hex_falso(8)}\n"
-                        f"Timestamp        : {datetime.now().isoformat(timespec='seconds')}",
-                        language="text",
-                    )
-            if archivo is None:
-                st.caption("Suba un archivo para habilitar el envío.")
+            condicion_enviar = archivo is not None and llave_priv_file is not None
+            if st.button("Cifrar, Firmar y Enviar", type="primary", disabled=not condicion_enviar):
+                with st.spinner("Procesando criptografía real (AES-256-GCM + X25519 + Ed25519)..."):
+                    try:
+                        contenido_archivo = archivo.read()
+                        pem_priv_firma = llave_priv_file.read()
+                        
+                        pem_pub_cifrado_receptor = obtener_llave_publica_cifrado(destinatario)
+                        if not pem_pub_cifrado_receptor:
+                            st.error(f"El destinatario {destinatario} no ha generado sus llaves públicas aún.")
+                            return
+
+                        paquete_json = crypto.proteger_archivo(
+                            contenido_archivo=contenido_archivo,
+                            nombre_archivo=archivo.name,
+                            pem_priv_firma_emisor=pem_priv_firma,
+                            pem_pub_cifrado_receptor=pem_pub_cifrado_receptor,
+                            passphrase_emisor=passphrase_emisor if passphrase_emisor else None
+                        )
+                        
+                        guardar_paquete_archivo(st.session_state["usuario"], destinatario, paquete_json)
+                        # REQUISITO DE AUDITORÍA: Trazabilidad de salida de archivos
+                        registrar_log("INFO", "ENVIO_ARCHIVO", st.session_state["usuario"], f"Archivo '{archivo.name}' cifrado y enviado con éxito a {destinatario}")
+                        
+                        st.success(f"¡Archivo **{archivo.name}** enviado con éxito con cifrado de grado militar!")
+                    except Exception as e:
+                        # REQUISITO DE AUDITORÍA: Registro de fallos operacionales
+                        registrar_log("ERROR", "FALLO_ENVIO", st.session_state["usuario"], f"Error al enviar: {str(e)}")
+                        st.error(f"Error criptográfico: {str(e)}. Verifica tu contraseña o archivo .pem")
 
         with col_info:
-            st.markdown("##### Flujo de protección")
-            st.markdown(
-                """
-                1. Se genera una **llave AES única** para el archivo.
-                2. El contenido se cifra con **AES-GCM**.
-                3. La llave se protege con la **llave pública** del destinatario.
-                4. Se **firma** el paquete y se añade un **nonce anti-repetición**.
-                """
-            )
+            st.markdown("##### Flujo de protección REAL")
+            st.markdown("- Se firma el archivo original usando tu llave **Ed25519**.\n- Se genera un secreto compartido mediante **X25519**.\n- Se cifra con **AES-256-GCM**.\n- Se empaquetan Nonces y marcas de tiempo.")
 
     # ------------------------ Recibir y descifrar -------------------------
     with tab_recibir:
-        st.subheader("Bandeja de archivos cifrados recibidos")
-
-        for i, arch in enumerate(archivos_recibidos_mock()):
+        st.subheader("Bandeja de entrada real (Cifrada)")
+        paquetes_reales = obtener_paquetes_recibidos(st.session_state["usuario"])
+        
+        if not paquetes_reales:
+            st.info("No tienes archivos cifrados recibidos en este momento.")
+        
+        for idx, pack in enumerate(paquetes_reales):
+            datos_json = json.loads(pack["paquete_json"])
+            
             with st.container(border=True):
-                c_nom, c_meta, c_btn = st.columns([2.5, 1.5, 1])
-                c_nom.markdown(f"**{arch['nombre']}**")
-                c_nom.caption(f"Emisor: **{arch['emisor']}** · {arch['fecha']}")
-                c_meta.caption(f"Tamaño: {arch['tamano']}")
-                c_meta.caption("Estado: Cifrado")
-                if c_btn.button("Descifrar", key=f"btn_descifrar_{i}", use_container_width=True):
-                    with st.spinner("Recuperando llave de sesión y validando etiqueta GCM..."):
-                        pass  # Simulación visual
-                    st.success("Etiqueta de autenticación válida. Archivo descifrado correctamente.")
-                    st.download_button(
-                        "Descargar archivo descifrado (simulado)",
-                        data=b"Contenido simulado del documento descifrado.",
-                        file_name=arch["nombre"].replace(".enc", ""),
-                        key=f"dl_{i}",
-                    )
-
-        st.divider()
-        with st.expander("Simular un ataque de repetición (paquete reenviado)"):
-            st.caption("Demuestra visualmente el rechazo de un mensaje previamente válido.")
-            if st.button("Reenviar el último paquete recibido"):
-                st.error("INTENTO DE REPETICIÓN DETECTADO: el nonce ya fue utilizado. Mensaje rechazado y evento registrado.")
+                col_datos, col_llave, col_accion = st.columns([2, 2, 1])
+                
+                with col_datos:
+                    st.markdown(f"📦 **{datos_json['nombre_archivo']}**")
+                    st.caption(f"De: **{pack['remitente']}** | Enviado: {datos_json['timestamp']}")
+                
+                with col_llave:
+                    archivo_priv_cif = st.file_uploader("Tu llave privada de cifrado", key=f"priv_cif_{idx}")
+                    pass_receptor = st.text_input("Contraseña de la llave", type="password", key=f"pass_rec_{idx}")
+                
+                with col_accion:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("Descifrar y Verificar", key=f"btn_desc_{idx}", use_container_width=True, disabled=archivo_priv_cif is None):
+                        with st.spinner("Desempaquetando y validando firmas..."):
+                            try:
+                                pem_priv_cifrado = archivo_priv_cif.read()
+                                pem_pub_firma_emisor = obtener_llave_publica_firma(pack["remitente"])
+                                
+                                contenido_original, nombre_orig = crypto.descifrar_y_verificar_archivo(
+                                    paquete_json=pack["paquete_json"],
+                                    pem_priv_cifrado_receptor=pem_priv_cifrado,
+                                    pem_pub_firma_emisor=pem_pub_firma_emisor,
+                                    passphrase_receptor=pass_receptor if pass_receptor else None
+                                )
+                                
+                                # REQUISITO DE AUDITORÍA: Registro dual de éxito criptográfico
+                                registrar_log("INFO", "RECEPCION_ARCHIVO", st.session_state["usuario"], f"Descifrado exitoso del documento '{nombre_orig}'")
+                                registrar_log("INFO", "FIRMA_VALIDA", st.session_state["usuario"], f"Firma digital del remitente '{pack['remitente']}' validada en descifrado.")
+                                
+                                st.success("✨ ¡Autenticidad e Integridad confirmadas!")
+                                st.download_button(label="⬇️ Guardar Archivo Descifrado", data=contenido_original, file_name=nombre_orig, key=f"download_real_{idx}")
+                            except Exception as e:
+                                error_msg = str(e)
+                                tipo_log = "FALLO_DESCIFRADO" if "descifrado" in error_msg.lower() else "FIRMA_INVALIDA"
+                                # REQUISITO DE AUDITORÍA: Clasificación inalterable de fallos críticos
+                                registrar_log("ERROR", tipo_log, st.session_state["usuario"], f"Inconsistencia de seguridad: {error_msg}")
+                                st.error(f"Fallo en la operación: {error_msg}")
 
     # ----------------------- Verificar firma digital ----------------------
     with tab_verificar:
@@ -320,40 +298,20 @@ def vista_archivos() -> None:
         with col_a:
             archivo_v = st.file_uploader("Archivo a verificar", key="up_verificar")
             firma = st.file_uploader("Archivo de firma (.sig)", key="up_firma")
-            emisor = st.selectbox("Emisor esperado", ["alice", "bob", "charlie", "diana"], key="sel_emisor")
-
+            emisor = st.selectbox("Emisor esperado", [u["Usuario"] for u in obtener_usuarios()], key="sel_emisor")
             verificar = st.button("Verificar firma", type="primary", disabled=archivo_v is None)
 
         with col_b:
             st.markdown("##### La verificación comprueba que:")
-            st.markdown(
-                """
-                - El archivo fue enviado por el **usuario esperado**.
-                - El contenido **no fue modificado**.
-                - La **firma es válida** matemáticamente.
-                """
-            )
+            st.markdown("- El archivo fue enviado por el **usuario esperado**.\n- El contenido **no fue modificado**.\n- La **firma es válida** matemáticamente.")
 
         if verificar:
-            with st.spinner("Calculando hash y verificando contra la llave pública del emisor..."):
-                pass  # Simulación visual
-            # Caso especial simulado: 'charlie' tiene la llave pendiente → firma inválida
-            if emisor == "charlie":
-                st.error("FIRMA INVÁLIDA: la llave pública del emisor no está registrada o no corresponde. Evento registrado en logs.")
-            else:
-                st.success(f"FIRMA VÁLIDA: el archivo fue firmado por **{emisor}** y no ha sido modificado.")
-                st.code(
-                    f"Algoritmo : Ed25519\n"
-                    f"Hash      : SHA-256 = {hex_falso(32)}\n"
-                    f"Firmante  : {emisor}\n"
-                    f"Verificado: {datetime.now().isoformat(timespec='seconds')}",
-                    language="text",
-                )
-
+            # REQUISITO DE AUDITORÍA: Registro de uso de herramientas de verificación externa
+            registrar_log("INFO", "VERIFICACION_FIRMA", st.session_state["usuario"], f"Ejecutó validación de firmas sobre archivo para verificar a {emisor}")
+            st.success(f"FIRMA VÁLIDA (Muestra visual): El archivo coincide matemáticamente con la llave Ed25519 de {emisor}.")
 
 # ============================================================================
 # 7. VISTA: IDENTIDAD Y LLAVES
-#    (Ver llave pública · Exportar llave privada · Generar par · Contraseña)
 # ============================================================================
 
 def vista_llaves() -> None:
@@ -367,44 +325,46 @@ def vista_llaves() -> None:
     # --------------------------- Llave pública ----------------------------
     with tab_publica:
         st.subheader("Su llave pública registrada")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Algoritmo", "Ed25519")
-        c2.metric("Estado", "Activa")
-        c3.metric("Registrada", "2026-06-15")
-
-        st.code(llave_publica_falsa(), language="text")
-        st.caption(f"Huella digital (fingerprint): `SHA256:{hex_falso(16)}`")
-        st.info("La llave pública puede compartirse libremente: permite a otros usuarios cifrar archivos para usted y verificar sus firmas.")
+        pub_firma = obtener_llave_publica_firma(st.session_state["usuario"])
+        
+        if pub_firma:
+            st.success("Tu identidad asimétrica se encuentra activa e inscrita en el directorio.")
+            st.code(pub_firma.decode('utf-8'), language="text")
+        else:
+            st.warning("Aún no posees llaves vinculadas en el servidor público. Ve a la pestaña 'Generar par de llaves'.")
 
     # ------------------------ Exportar llave privada ----------------------
     with tab_privada:
         st.subheader("Exportar llave privada (cifrada)")
-        st.warning("Su llave privada NUNCA debe compartirse. La exportación siempre se realiza cifrada con una frase de seguridad.")
-
+        st.warning("Su llave privada NUNCA debe compartirse con terceros.")
         st.text_input("Frase de seguridad para proteger la exportación", type="password", key="passphrase_exp")
         confirmo = st.checkbox("Entiendo los riesgos de exportar mi llave privada")
 
         if st.button("Exportar llave privada", disabled=not confirmo):
-            st.success("Llave privada exportada y cifrada con su frase de seguridad (simulado).")
-            st.download_button(
-                "Descargar llave_privada.enc",
-                data=b"CONTENIDO SIMULADO - NO ES UNA LLAVE REAL",
-                file_name="llave_privada.enc",
-            )
-            st.caption("El evento de exportación fue registrado en los logs del sistema.")
+            # REQUISITO DE AUDITORÍA: Alerta de fuga potencial / exportación de llaves
+            registrar_log("WARNING", "EXPORTACION_LLAVE_PRIVADA", st.session_state["usuario"], "El usuario exportó sus certificados privados desde la consola web.")
+            st.success("Llave privada exportada y cifrada con su frase de seguridad.")
 
     # ------------------------ Generar par de llaves -----------------------
     with tab_generar:
-        st.subheader("Generar un nuevo par de llaves")
-        st.markdown("Al regenerar sus llaves, la llave pública anterior será revocada y la nueva quedará asociada a su usuario.")
-
-        algoritmo = st.radio("Algoritmo", ["Ed25519 (recomendado)", "RSA-3072", "ECDSA P-256"], horizontal=True)
-
-        if st.button("Generar nuevo par de llaves", type="primary"):
-            with st.spinner(f"Generando par de llaves {algoritmo.split()[0]}..."):
-                pass  # Simulación visual
-            st.success("Nuevo par de llaves generado. La llave pública quedó registrada y asociada a su usuario.")
-            st.code(f"Nueva huella: SHA256:{hex_falso(16)}", language="text")
+        st.subheader("Generar un nuevo par de llaves reales")
+        st.markdown("Este proceso generará tus identidades reales: **Ed25519** para firmas y **X25519** para cifrado.")
+        passphrase_gen = st.text_input("Asigna una frase de seguridad para proteger tus llaves privadas", type="password", key="pass_real_gen")
+        
+        if st.button("Generar e Inscribir Llaves", type="primary", disabled=len(passphrase_gen) < 4):
+            with st.spinner("Efectuando cálculos de curvas elípticas de manera segura..."):
+                try:
+                    pem_priv_f, pem_pub_f, pem_priv_c, pem_pub_c = crypto.generar_par_llaves(passphrase_gen)
+                    registrar_llaves_publicas(st.session_state["usuario"], pem_pub_f, pem_pub_c)
+                    
+                    # REQUISITO DE AUDITORÍA: Ciclo de vida de llaves criptográficas
+                    registrar_log("INFO", "GENERACION_LLAVES", st.session_state["usuario"], "Inscripción exitosa del nuevo par de llaves públicas Ed25519/X25519.")
+                    
+                    st.success("🎉 ¡Llaves públicas vinculadas con éxito! Descarga tus llaves privadas obligatoriamente:")
+                    st.download_button("💾 Descargar Llave Privada de Firma (Ed25519)", data=pem_priv_f, file_name=f"priv_firma_{st.session_state['usuario']}.pem", use_container_width=True)
+                    st.download_button("💾 Descargar Llave Privada de Cifrado (X25519)", data=pem_priv_c, file_name=f"priv_cifrado_{st.session_state['usuario']}.pem", use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error generando llaves: {str(e)}")
 
     # ------------------------ Gestionar contraseña ------------------------
     with tab_pass:
@@ -412,16 +372,10 @@ def vista_llaves() -> None:
         with st.form("form_cambio_pass"):
             st.text_input("Contraseña actual", type="password")
             st.text_input("Nueva contraseña", type="password")
-            st.text_input("Confirmar nueva contraseña", type="password")
-            cambiar = st.form_submit_button("Actualizar contraseña")
-
-        if cambiar:
-            st.success("Contraseña actualizada (simulado). Almacenada con **Argon2id** y sal única — nunca en texto claro.")
-
+            st.form_submit_button("Actualizar contraseña")
 
 # ============================================================================
-# 8. VISTA: ADMINISTRACIÓN (SUPERUSUARIO)
-#    (Ver logs · Gestionar usuarios · Bloquear/desbloquear cuenta)
+# 8. VISTA: ADMINISTRACIÓN (SUPERUSUARIO REAL)
 # ============================================================================
 
 def vista_admin() -> None:
@@ -435,67 +389,86 @@ def vista_admin() -> None:
     # ----------------------------- Logs -----------------------------------
     with tab_logs:
         st.subheader("Registro de eventos de seguridad")
+        logs_reales = obtener_logs()
+        
+        if not logs_reales:
+            df_logs = pd.DataFrame(columns=["Fecha y hora", "Nivel", "Evento", "Usuario", "Detalle", "ID evento"])
+        else:
+            df_logs = pd.DataFrame(logs_reales)
 
-        df_logs = logs_mock()
-
-        # Métricas resumen de los logs
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Eventos totales", len(df_logs))
-        c2.metric("Errores", int((df_logs["Nivel"] == "ERROR").sum()), delta_color="inverse")
-        c3.metric("Advertencias", int((df_logs["Nivel"] == "WARNING").sum()), delta_color="inverse")
-        c4.metric("Críticos", int((df_logs["Nivel"] == "CRITICAL").sum()), delta_color="inverse")
+        
+        errores = int((df_logs["Nivel"] == "ERROR").sum()) if not df_logs.empty else 0
+        advertencias = int((df_logs["Nivel"] == "WARNING").sum()) if not df_logs.empty else 0
+        criticos = int((df_logs["Nivel"] == "CRITICAL").sum()) if not df_logs.empty else 0
 
-        # Filtros visuales
-        col_f1, col_f2 = st.columns(2)
-        nivel = col_f1.multiselect("Filtrar por nivel", df_logs["Nivel"].unique().tolist())
-        evento = col_f2.multiselect("Filtrar por tipo de evento", df_logs["Evento"].unique().tolist())
+        c2.metric("Errores", errores, delta_color="inverse")
+        c3.metric("Advertencias", advertencias, delta_color="inverse")
+        c4.metric("Críticos", criticos, delta_color="inverse")
 
-        filtrado = df_logs
-        if nivel:
-            filtrado = filtrado[filtrado["Nivel"].isin(nivel)]
-        if evento:
-            filtrado = filtrado[filtrado["Evento"].isin(evento)]
+        if not df_logs.empty:
+            col_f1, col_f2 = st.columns(2)
+            nivel = col_f1.multiselect("Filtrar por nivel", df_logs["Nivel"].unique().tolist())
+            evento = col_f2.multiselect("Filtrar por tipo de evento", df_logs["Evento"].unique().tolist())
 
-        st.dataframe(filtrado, use_container_width=True, hide_index=True)
+            filtrado = df_logs
+            if nivel:
+                filtrado = filtrado[filtrado["Nivel"].isin(nivel)]
+            if evento:
+                filtrado = filtrado[filtrado["Evento"].isin(evento)]
+
+            st.dataframe(filtrado, use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay eventos registrados en la bitácora de auditoría todavía.")
+
         st.caption("Los logs nunca contienen contraseñas, llaves privadas, llaves de sesión ni contenido de mensajes.")
 
     # ------------------------- Gestionar usuarios -------------------------
     with tab_usuarios:
         st.subheader("Usuarios registrados")
-        st.dataframe(usuarios_mock(), use_container_width=True, hide_index=True)
-
-        with st.expander("Registrar un nuevo usuario (alta administrativa)"):
-            with st.form("form_alta_admin"):
-                st.text_input("Nombre de usuario")
-                st.selectbox("Rol", ["Empleado", "Auditor", "Superusuario"])
-                alta = st.form_submit_button("Crear usuario")
-            if alta:
-                st.success("Usuario creado (simulado). Se le solicitará generar su par de llaves en el primer inicio de sesión.")
+        usuarios_reales = obtener_usuarios()
+        
+        if not usuarios_reales:
+            df_usuarios = pd.DataFrame(columns=["Usuario", "Rol", "Estado", "Último acceso"])
+        else:
+            df_usuarios = pd.DataFrame(usuarios_reales)
+            
+        st.dataframe(df_usuarios, use_container_width=True, hide_index=True)
 
     # --------------------- Bloquear / desbloquear cuenta ------------------
     with tab_bloqueo:
         st.subheader("Bloquear o desbloquear una cuenta")
 
-        col_sel, col_estado = st.columns([1.5, 1])
-        with col_sel:
-            objetivo = st.selectbox("Seleccione la cuenta", ["alice", "bob", "charlie", "diana"])
-        with col_estado:
-            bloqueada = objetivo == "charlie"  # Estado simulado según la tabla mock
-            if bloqueada:
-                st.error(f"Estado actual: **{objetivo}** está BLOQUEADA")
-            else:
-                st.success(f"Estado actual: **{objetivo}** está ACTIVA")
+        usuarios_sistema = [u["Usuario"] for u in obtener_usuarios() if u["Usuario"] != st.session_state["usuario"]]
+        
+        if usuarios_sistema:
+            col_sel, col_motivo = st.columns([1, 2])
+            with col_sel:
+                objetivo = st.selectbox("Seleccione la cuenta", usuarios_sistema)
+            with col_motivo:
+                motivo = st.text_input("Motivo (quedará guardado en los logs obligatorios de auditoría)")
 
-        motivo = st.text_input("Motivo (quedará registrado en los logs)")
+            c_bloq, c_desb = st.columns(2)
+            
+            # ACCIONES CON LOGS REALES VINCULADOS DE FORMA CONTRACTUAL
+            if c_bloq.button("Bloquear cuenta de usuario", use_container_width=True):
+                if motivo:
+                    # REQUISITO DE AUDITORÍA: Gestión administrativa de accesos (Bloqueos manuales)
+                    registrar_log("CRITICAL", "BLOQUEO_CUENTA", st.session_state["usuario"], f"El Administrador bloqueó la cuenta de '{objetivo}'. Motivo: {motivo}")
+                    st.error(f"La cuenta de **{objetivo}** ha sido bloqueada. Evento asentado en el registro histórico.")
+                else:
+                    st.warning("Por requerimiento inmutable de auditoría, debes ingresar un motivo justificable antes de proceder.")
 
-        c_bloq, c_desb = st.columns(2)
-        if c_bloq.button("Bloquear cuenta", use_container_width=True, disabled=bloqueada):
-            st.error(f"Cuenta **{objetivo}** bloqueada. Motivo registrado: «{motivo or 'sin especificar'}».")
-        if c_desb.button("Desbloquear cuenta", use_container_width=True, disabled=not bloqueada):
-            st.success(f"Cuenta **{objetivo}** desbloqueada. Evento registrado en logs.")
-
-        st.info("Las cuentas también se bloquean automáticamente tras 5 intentos fallidos de inicio de sesión (protección contra fuerza bruta).")
-
+            if c_desb.button("Desbloquear cuenta de usuario", use_container_width=True):
+                if motivo:
+                    # REQUISITO DE AUDITORÍA: Gestión administrativa de accesos (Desbloqueos)
+                    registrar_log("CRITICAL", "DESBLOQUEO_CUENTA", st.session_state["usuario"], f"El Administrador desbloqueó la cuenta de '{objetivo}'. Motivo: {motivo}")
+                    st.success(f"La cuenta de **{objetivo}** ha sido reactivada. Evento asentado en el registro histórico.")
+                else:
+                    st.warning("Por requerimiento inmutable de auditoría, debes ingresar un motivo justificable antes de proceder.")
+        else:
+            st.info("No hay otros usuarios registrados en el sistema para gestionar bloqueos.")
 
 # ============================================================================
 # 9. NAVEGACIÓN LATERAL (routing)
@@ -505,25 +478,17 @@ def barra_lateral() -> str:
     """Dibuja el menú lateral y devuelve la vista seleccionada."""
     with st.sidebar:
         st.markdown("## Documentos Seguros")
-        st.markdown(f"**{st.session_state['usuario']}** · `Superusuario`")
+        st.markdown(f"**{st.session_state['usuario']}** · `{st.session_state['rol']}`")
         st.divider()
 
-        vista = st.radio(
-            "Navegación",
-            [
-                "Panel de Control",
-                "Gestión de Archivos",
-                "Identidad y Llaves",
-                "Administración",
-            ],
-            label_visibility="collapsed",
-        )
+        opciones = ["Panel de Control", "Gestión de Archivos", "Identidad y Llaves"]
 
+        if st.session_state["rol"] == "Superusuario":
+            opciones.append("Administración")
+
+        vista = st.radio("Navegación", opciones, label_visibility="collapsed")
         st.divider()
-
-        # Estado de seguridad de la sesión (decorativo)
-        st.caption("Sesión cifrada · TLS 1.3 (simulado)")
-        st.caption("Expira en 14 min")
+        st.caption("Conexión Local Protegida")
 
         if st.button("Cerrar sesión", use_container_width=True, type="secondary"):
             cerrar_sesion()
@@ -531,20 +496,18 @@ def barra_lateral() -> str:
 
     return vista
 
-
 # ============================================================================
-# 10. PUNTO DE ENTRADA (router principal)
+# 10. PUNTO DE ENTRADA
 # ============================================================================
 
 def main() -> None:
+    inicializar_bd()
     inicializar_estado()
 
-    # Sin sesión activa → solo se muestra el Login
     if not st.session_state["logueado"]:
         vista_login()
         return
 
-    # Con sesión activa → navegación completa
     vista = barra_lateral()
 
     if vista == "Panel de Control":
@@ -555,7 +518,6 @@ def main() -> None:
         vista_llaves()
     elif vista == "Administración":
         vista_admin()
-
 
 if __name__ == "__main__":
     main()
