@@ -214,6 +214,30 @@ def obtener_paquetes_recibidos(usuario: str) -> list:
             })
         return resultado
 
+def obtener_paquetes_enviados(usuario: str) -> list:
+    """
+    Recupera los archivos enviados por un usuario.
+    Devuelve únicamente metadatos seguros para historial y auditoría:
+    no regresa contenido original, llaves privadas ni llaves de sesión.
+    """
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                id AS [ID],
+                destinatario AS [Destinatario],
+                archivo_nombre AS [Archivo],
+                nonce_protocolo AS [ID único / Nonce],
+                timestamp AS [Fecha de envío],
+                iv_hex AS [Nonce AES-GCM (hex)],
+                CAST(length(texto_cifrado_hex) / 2 AS INTEGER) AS [Tamaño cifrado bytes],
+                substr(firma_digital_hex, 1, 32) || '...' AS [Firma digital (resumen)]
+            FROM paquetes_archivos
+            WHERE emisor = ?
+            ORDER BY timestamp DESC
+        """, (usuario,))
+        return [dict(row) for row in cursor.fetchall()]
+
 def obtener_logs():
     """Recupera todos los logs para la vista de administración."""
     with obtener_conexion() as conn:

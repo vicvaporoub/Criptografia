@@ -23,10 +23,11 @@ from database import (
     obtener_llave_publica_cifrado,  
     obtener_llave_publica_firma,    
     guardar_paquete_archivo,        
-    obtener_paquetes_recibidos,     
-    registrar_log                   
+    obtener_paquetes_recibidos,
+    obtener_paquetes_enviados,
+    registrar_log,
 )
-import crypto  # Tu archivo crypto.py real
+import crypto
 
 # ============================================================================
 # 1. CONFIGURACIÓN GENERAL DE LA PÁGINA
@@ -39,7 +40,7 @@ st.set_page_config(
 )
 
 # ============================================================================
-# 2. UTILIDADES DE DECORACIÓN VISUAL (Mantener compatibilidad)
+# 2. UTILIDADES DE DECORACIÓN VISUAL
 # ============================================================================
 
 def hex_falso(n_bytes: int = 16) -> str:
@@ -56,7 +57,7 @@ def llave_publica_falsa() -> str:
     )
 
 # ============================================================================
-# 3. GESTIÓN DE SESIÓN (st.session_state)
+# 3. GESTIÓN DE SESIÓN
 # ============================================================================
 
 def inicializar_estado() -> None:
@@ -139,7 +140,7 @@ def vista_login() -> None:
         st.divider()
 
 # ============================================================================
-# 5. VISTA: PANEL PRINCIPAL (dashboard)
+# 5. VISTA: PANEL PRINCIPAL
 # ============================================================================
 
 def vista_dashboard() -> None:
@@ -187,8 +188,8 @@ def vista_archivos() -> None:
     st.title("Gestión de Archivos")
     st.caption("Envío cifrado, recepción con descifrado y verificación de firmas digitales.")
 
-    tab_enviar, tab_recibir, tab_verificar = st.tabs(
-        ["Enviar archivo", "Recibir y descifrar", "Verificar firma digital"]
+    tab_enviar, tab_recibir, tab_enviados, tab_verificar = st.tabs(
+        ["Enviar archivo", "Recibir y descifrar", "Archivos enviados", "Verificar firma digital"]
     )
 
     # --------------------------- Enviar archivo ---------------------------
@@ -291,6 +292,42 @@ def vista_archivos() -> None:
                                 # REQUISITO DE AUDITORÍA: Clasificación inalterable de fallos críticos
                                 registrar_log("ERROR", tipo_log, st.session_state["usuario"], f"Inconsistencia de seguridad: {error_msg}")
                                 st.error(f"Fallo en la operación: {error_msg}")
+
+    # ------------------------ Archivos enviados -------------------------
+    with tab_enviados:
+        st.subheader("Archivos enviados")
+        st.caption("Historial de archivos que has cifrado, firmado y enviado a otros usuarios.")
+
+        enviados = obtener_paquetes_enviados(st.session_state["usuario"])
+
+        if not enviados:
+            st.info("Todavía no has enviado archivos.")
+        else:
+            df_enviados = pd.DataFrame(enviados)
+
+            st.dataframe(
+                df_enviados,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.markdown("### Detalle de envíos")
+
+            for archivo_env in enviados:
+                titulo = f"{archivo_env['Archivo']} → {archivo_env['Destinatario']}"
+                with st.expander(titulo):
+                    st.write(f"**ID interno:** {archivo_env['ID']}")
+                    st.write(f"**Destinatario:** {archivo_env['Destinatario']}")
+                    st.write(f"**Fecha de envío:** {archivo_env['Fecha de envío']}")
+                    st.write(f"**ID único / Nonce de protocolo:** `{archivo_env['ID único / Nonce']}`")
+                    st.write(f"**Nonce AES-GCM:** `{archivo_env['Nonce AES-GCM (hex)']}`")
+                    st.write(f"**Tamaño cifrado:** {archivo_env['Tamaño cifrado bytes']} bytes")
+                    st.write(f"**Firma digital registrada:** `{archivo_env['Firma digital (resumen)']}`")
+
+                    st.info(
+                        "Esta vista solo muestra metadatos seguros del envío. "
+                        "No expone el archivo original, llaves privadas, contraseñas ni llaves de sesión."
+                    )
 
     # ----------------------- Verificar firma digital ----------------------
     with tab_verificar:
