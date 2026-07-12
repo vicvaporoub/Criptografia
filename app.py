@@ -232,7 +232,7 @@ def vista_archivos() -> None:
                         # REQUISITO DE AUDITORÍA: Trazabilidad de salida de archivos
                         registrar_log("INFO", "ENVIO_ARCHIVO", st.session_state["usuario"], f"Archivo '{archivo.name}' cifrado y enviado con éxito a {destinatario}")
                         
-                        st.success(f"¡Archivo **{archivo.name}** enviado con éxito con cifrado de grado militar!")
+                        st.success(f"¡Archivo **{archivo.name}** enviado con éxito!")
                     except Exception as e:
                         # REQUISITO DE AUDITORÍA: Registro de fallos operacionales
                         registrar_log("ERROR", "FALLO_ENVIO", st.session_state["usuario"], f"Error al enviar: {str(e)}")
@@ -478,7 +478,7 @@ def vista_admin() -> None:
             with col_sel:
                 objetivo = st.selectbox("Seleccione la cuenta", usuarios_sistema)
             with col_motivo:
-                motivo = st.text_input("Motivo (quedará guardado en los logs obligatorios de auditoría)")
+                motivo = st.text_input("Motivo")
 
             c_bloq, c_desb = st.columns(2)
             
