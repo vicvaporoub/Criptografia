@@ -182,3 +182,29 @@ def cambiar_rol(usuario, rol):
         ))
 
         conn.commit()
+
+# =====================================================
+# ACTUALIZAR CONTRASEÑA (Cambio Seguro)
+# =====================================================
+def actualizar_contrasena(usuario, password_actual, nueva_password):
+    datos = buscar_usuario(usuario)
+    if datos is None:
+        return False, "Usuario no encontrado."
+    try:
+        # Validar que conoce su contraseña anterior antes de cambiarla
+        ph.verify(datos["password_hash"], password_actual)
+        
+        # Generar el nuevo hash Argon2id
+        nuevo_hash = ph.hash(nueva_password)
+        
+        with obtener_conexion() as conn:
+            conn.execute("""
+                UPDATE usuarios 
+                SET password_hash = ? 
+                WHERE usuario = ?
+            """, (nuevo_hash, usuario))
+            conn.commit()
+            
+        return True, "Contraseña actualizada correctamente."
+    except VerifyMismatchError:
+        return False, "La contraseña actual es incorrecta."

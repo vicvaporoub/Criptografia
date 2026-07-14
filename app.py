@@ -193,6 +193,7 @@ def vista_archivos() -> None:
     )
 
     # --------------------------- Enviar archivo ---------------------------
+    # --------------------------- Enviar archivo ---------------------------
     with tab_enviar:
         st.subheader("Enviar archivo cifrado")
         col_form, col_info = st.columns([2, 1])
@@ -210,39 +211,70 @@ def vista_archivos() -> None:
             passphrase_emisor = st.text_input("Contraseña de tu llave privada", type="password", key="pass_emisor")
 
             condicion_enviar = archivo is not None and llave_priv_file is not None
-            if st.button("Cifrar, Firmar y Enviar", type="primary", disabled=not condicion_enviar):
-                with st.spinner("Procesando criptografía real (AES-256-GCM + X25519 + Ed25519)..."):
-                    try:
-                        contenido_archivo = archivo.read()
-                        pem_priv_firma = llave_priv_file.read()
-                        
-                        pem_pub_cifrado_receptor = obtener_llave_publica_cifrado(destinatario)
-                        if not pem_pub_cifrado_receptor:
-                            st.error(f"El destinatario {destinatario} no ha generado sus llaves públicas aún.")
-                            return
+            
+            col_btn1, col_btn2 = st.columns(2)
+            
+            with col_btn1:
+                if st.button("Cifrar, Firmar y Enviar", type="primary", disabled=not condicion_enviar, use_container_width=True):
+                    with st.spinner("Procesando criptografía real..."):
+                        try:
+                            contenido_archivo = archivo.read()
+                            pem_priv_firma = llave_priv_file.read()
+                            
+                            pem_pub_cifrado_receptor = obtener_llave_publica_cifrado(destinatario)
+                            if not pem_pub_cifrado_receptor:
+                                registrar_log("ERROR", "LLAVE_DESCONOCIDA", st.session_state["usuario"], f"Intento de envío fallido: El usuario '{destinatario}' no tiene llaves públicas registradas.")
+                                st.error(f"El destinatario {destinatario} no ha generado sus llaves públicas aún.")
+                                return
 
-                        paquete_json = crypto.proteger_archivo(
-                            contenido_archivo=contenido_archivo,
-                            nombre_archivo=archivo.name,
-                            pem_priv_firma_emisor=pem_priv_firma,
-                            pem_pub_cifrado_receptor=pem_pub_cifrado_receptor,
-                            passphrase_emisor=passphrase_emisor if passphrase_emisor else None
-                        )
-                        
-                        guardar_paquete_archivo(st.session_state["usuario"], destinatario, paquete_json)
-                        # REQUISITO DE AUDITORÍA: Trazabilidad de salida de archivos
-                        registrar_log("INFO", "ENVIO_ARCHIVO", st.session_state["usuario"], f"Archivo '{archivo.name}' cifrado y enviado con éxito a {destinatario}")
-                        
-                        st.success(f"¡Archivo **{archivo.name}** enviado con éxito!")
-                    except Exception as e:
-                        # REQUISITO DE AUDITORÍA: Registro de fallos operacionales
-                        registrar_log("ERROR", "FALLO_ENVIO", st.session_state["usuario"], f"Error al enviar: {str(e)}")
-                        st.error(f"Error criptográfico: {str(e)}. Verifica tu contraseña o archivo .pem")
+                            paquete_json = crypto.proteger_archivo(
+                                contenido_archivo=contenido_archivo,
+                                nombre_archivo=archivo.name,
+                                pem_priv_firma_emisor=pem_priv_firma,
+                                pem_pub_cifrado_receptor=pem_pub_cifrado_receptor,
+                                passphrase_emisor=passphrase_emisor if passphrase_emisor else None
+                            )
+                            
+                            # Guardamos el paquete en la memoria temporal para poder clonarlo en el ataque simulado
+                            st.session_state["ultimo_paquete_interceptado"] = paquete_json
+                            st.session_state["ultimo_destinatario_interceptado"] = destinatario
+                            
+                            guardado_exitoso = guardar_paquete_archivo(st.session_state["usuario"], destinatario, paquete_json)
+                            
+                            if guardado_exitoso:
+                                registrar_log("INFO", "ENVIO_ARCHIVO", st.session_state["usuario"], f"Archivo '{archivo.name}' cifrado y enviado con éxito a {destinatario}")
+                                st.success(f"¡Archivo **{archivo.name}** enviado con éxito!")
+                            else:
+                                registrar_log("CRITICAL", "INTENTO_REPETICION", st.session_state["usuario"], f"ATAQUE DETECTADO: Se rechazó un paquete repetido para {destinatario}.")
+                                st.error("⚠️ Error Crítico de Seguridad: Intento de ataque de repetición detectado.")
+                                
+                        except Exception as e:
+                            registrar_log("ERROR", "FALLO_ENVIO", st.session_state["usuario"], f"Error al enviar: {str(e)}")
+                            st.error(f"Error criptográfico: {str(e)}.")
+
+            with col_btn2:
+                # BOTÓN EN MEMORIA PARA SIMULAR AL ATACANTE (Bypassea la encriptación y reenvía el texto exacto anterior)
+                tiene_paquete = "ultimo_paquete_interceptado" in st.session_state
+                if st.button("💥 Reinyectar Paquete Interceptado (Atacar)", type="secondary", disabled=not tiene_paquete, use_container_width=True):
+                    st.warning("Simulando atacante de red re-inyectando bytes clonados...")
+                    
+                    # Intentamos guardar EXACTAMENTE el mismo JSON anterior sin generar nonces nuevos
+                    ataque_exitoso = guardar_paquete_archivo(
+                        st.session_state["usuario"], 
+                        st.session_state["ultimo_destinatario_interceptado"], 
+                        st.session_state["ultimo_paquete_interceptado"]
+                    )
+                    
+                    if not ataque_exitoso:
+                        # AQUÍ SE DETECTA EL ATAQUE REAL
+                        registrar_log("CRITICAL", "INTENTO_REPETICION", st.session_state["usuario"], f"ATAQUE DETECTADO: Se bloqueó la re-inyección de un paquete clonado dirigido a {st.session_state['ultimo_destinatario_interceptado']}.")
+                        st.error("⚠️ La base de datos rechazó el paquete clonado porque el Nonce ya fue utilizado en el sistema. Ataque neutralizado.")
+                    else:
+                        st.success("El paquete clonado pasó (Esto no debería pasar si los Nonces están activos).")
 
         with col_info:
             st.markdown("##### Flujo de protección REAL")
             st.markdown("- Se firma el archivo original usando tu llave **Ed25519**.\n- Se genera un secreto compartido mediante **X25519**.\n- Se cifra con **AES-256-GCM**.\n- Se empaquetan Nonces y marcas de tiempo.")
-
     # ------------------------ Recibir y descifrar -------------------------
     with tab_recibir:
         st.subheader("Bandeja de entrada real (Cifrada)")
@@ -335,20 +367,41 @@ def vista_archivos() -> None:
         col_a, col_b = st.columns(2)
 
         with col_a:
-            archivo_v = st.file_uploader("Archivo a verificar", key="up_verificar")
-            firma = st.file_uploader("Archivo de firma (.sig)", key="up_firma")
+            archivo_v = st.file_uploader("Archivo original a verificar", key="up_verificar")
+            firma = st.file_uploader("Archivo de firma digital (.sig o bytes)", key="up_firma")
             emisor = st.selectbox("Emisor esperado", [u["Usuario"] for u in obtener_usuarios()], key="sel_emisor")
-            verificar = st.button("Verificar firma", type="primary", disabled=archivo_v is None)
+            verificar = st.button("Verificar firma", type="primary", disabled=(archivo_v is None or firma is None))
 
         with col_b:
             st.markdown("##### La verificación comprueba que:")
             st.markdown("- El archivo fue enviado por el **usuario esperado**.\n- El contenido **no fue modificado**.\n- La **firma es válida** matemáticamente.")
 
         if verificar:
-            # REQUISITO DE AUDITORÍA: Registro de uso de herramientas de verificación externa
-            registrar_log("INFO", "VERIFICACION_FIRMA", st.session_state["usuario"], f"Ejecutó validación de firmas sobre archivo para verificar a {emisor}")
-            st.success(f"FIRMA VÁLIDA (Muestra visual): El archivo coincide matemáticamente con la llave Ed25519 de {emisor}.")
-
+            try:
+                contenido_archivo = archivo_v.read()
+                firma_bytes = firma.read()
+                
+                # Obtener la llave pública real de la BD
+                pem_pub_firma_emisor = obtener_llave_publica_firma(emisor)
+                
+                if not pem_pub_firma_emisor:
+                    registrar_log("WARNING", "LLAVE_DESCONOCIDA", st.session_state["usuario"], f"Verificación fallida: Llave de firma no encontrada para el usuario '{emisor}'.")
+                    st.error(f"No se pudo verificar: El usuario '{emisor}' no tiene una llave pública registrada en el sistema.")
+                else:
+                    from cryptography.hazmat.primitives import serialization
+                    # Cargar la llave pública Ed25519
+                    pub_key = serialization.load_pem_public_key(pem_pub_firma_emisor)
+                    
+                    # Verificar firma
+                    pub_key.verify(firma_bytes, contenido_archivo)
+                    
+                    # REQUISITO DE AUDITORÍA: Registro de firma válida
+                    registrar_log("INFO", "FIRMA_VALIDA", st.session_state["usuario"], f"Verificación externa exitosa: Archivo '{archivo_v.name}' firmado válidamente por {emisor}.")
+                    st.success(f"✨ ¡FIRMA VÁLIDA! El archivo coincide matemáticamente con la llave Ed25519 de {emisor} y no ha sido alterado.")
+            except Exception as e:
+                # REQUISITO DE AUDITORÍA: Registro de firma inválida / anomalía
+                registrar_log("ERROR", "FIRMA_INVALIDA", st.session_state["usuario"], f"Fallo de verificación: La firma provista para el archivo '{archivo_v.name}' no es válida para el usuario {emisor}. Detalle: {str(e)}")
+                st.error(f"❌ FIRMA INVÁLIDA: El archivo ha sido modificado o no corresponde a la firma del usuario {emisor}.")
 # ============================================================================
 # 7. VISTA: IDENTIDAD Y LLAVES
 # ============================================================================
@@ -374,16 +427,40 @@ def vista_llaves() -> None:
 
     # ------------------------ Exportar llave privada ----------------------
     with tab_privada:
-        st.subheader("Exportar llave privada (cifrada)")
-        st.warning("Su llave privada NUNCA debe compartirse con terceros.")
-        st.text_input("Frase de seguridad para proteger la exportación", type="password", key="passphrase_exp")
-        confirmo = st.checkbox("Entiendo los riesgos de exportar mi llave privada")
+        st.subheader("Exportar / Re-cifrar Llave Privada Local")
+        st.info("🔒 Principio de Seguridad: El servidor NO almacena tu llave privada. Esta herramienta opera de forma 100% local en tu sesión para cambiar la frase de seguridad (passphrase) de tu llave privada (.pem) y exportarla de forma segura.")
+        
+        llave_subida = st.file_uploader("Sube tu llave privada actual (.pem)", key="up_llave_export")
+        pass_actual_llave = st.text_input("Frase de seguridad ACTUAL de la llave", type="password", key="pass_llave_exp_act")
+        pass_nueva_llave = st.text_input("NUEVA frase de seguridad para proteger la exportación", type="password", key="passphrase_exp")
+        confirmo = st.checkbox("Entiendo los riesgos de manejar y exportar mi material criptográfico privado")
 
-        if st.button("Exportar llave privada", disabled=not confirmo):
-            # REQUISITO DE AUDITORÍA: Alerta de fuga potencial / exportación de llaves
-            registrar_log("WARNING", "EXPORTACION_LLAVE_PRIVADA", st.session_state["usuario"], "El usuario exportó sus certificados privados desde la consola web.")
-            st.success("Llave privada exportada y cifrada con su frase de seguridad.")
-
+        if st.button("Procesar y Exportar Llave", disabled=not (confirmo and llave_subida is not None and pass_nueva_llave)):
+            try:
+                from cryptography.hazmat.primitives import serialization
+                raw_pem = llave_subida.read()
+                
+                # Intentar cargar la llave privada local usando la frase actual para validar propiedad
+                priv_key = serialization.load_pem_private_key(
+                    raw_pem,
+                    password=pass_actual_llave.encode() if pass_actual_llave else None
+                )
+                
+                # Re-serializar y aplicar un cifrado simétrico robusto bajo la nueva frase de seguridad (BestAvailableEncryption)
+                nuevo_pem = priv_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.BestAvailableEncryption(pass_nueva_llave.encode())
+                )
+                
+                # REQUISITO DE AUDITORÍA: Alerta de exportación/manipulación de llaves privadas
+                registrar_log("WARNING", "EXPORTACION_LLAVE_PRIVADA", st.session_state["usuario"], "El usuario ejecutó de forma local el re-cifrado y exportación de sus llaves privadas.")
+                st.success("🔒 Llave privada re-cifrada y empaquetada con éxito. Puedes descargar tu exportación segura:")
+                st.download_button("💾 Descargar Llave Privada Exportada (.pem)", data=nuevo_pem, file_name=f"export_priv_{st.session_state['usuario']}.pem", use_container_width=True)
+                
+            except Exception as e:
+                registrar_log("ERROR", "FALLO_EXPORTACION_LLAVE", st.session_state["usuario"], f"Error crítico al intentar procesar exportación de llave privada: {str(e)}")
+                st.error(f"❌ Error al procesar el archivo PEM: {str(e)}. Asegúrate de que el archivo corresponde y que escribiste la frase de seguridad actual correcta.")
 # ------------------------ Generar par de llaves -----------------------
     with tab_generar:
         st.subheader("Generar un nuevo par de llaves reales")
@@ -436,11 +513,24 @@ def vista_llaves() -> None:
 
     # ------------------------ Gestionar contraseña ------------------------
     with tab_pass:
-        st.subheader("Cambiar contraseña")
+        st.subheader("Cambiar contraseña del sistema")
         with st.form("form_cambio_pass"):
-            st.text_input("Contraseña actual", type="password")
-            st.text_input("Nueva contraseña", type="password")
-            st.form_submit_button("Actualizar contraseña")
+            pass_actual = st.text_input("Contraseña actual", type="password")
+            pass_nueva = st.text_input("Nueva contraseña", type="password")
+            cambiar = st.form_submit_button("Actualizar contraseña", use_container_width=True)
+            
+        if cambiar:
+            if not pass_actual.strip() or not pass_nueva.strip():
+                st.error("Por favor completa ambos campos.")
+            else:
+                from auth import actualizar_contrasena
+                ok, mensaje = actualizar_contrasena(st.session_state["usuario"], pass_actual, pass_nueva)
+                if ok:
+                    registrar_log("INFO", "CAMBIO_PASSWORD", st.session_state["usuario"], "El usuario cambió su contraseña de acceso exitosamente.")
+                    st.success(mensaje)
+                else:
+                    registrar_log("WARNING", "FALLO_CAMBIO_PASSWORD", st.session_state["usuario"], f"Intento fallido de cambio de contraseña: {mensaje}")
+                    st.error(mensaje)
 
 # ============================================================================
 # 8. VISTA: ADMINISTRACIÓN (SUPERUSUARIO REAL)
