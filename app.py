@@ -193,7 +193,6 @@ def vista_archivos() -> None:
     )
 
     # --------------------------- Enviar archivo ---------------------------
-    # --------------------------- Enviar archivo ---------------------------
     with tab_enviar:
         st.subheader("Enviar archivo cifrado")
         col_form, col_info = st.columns([2, 1])
@@ -212,53 +211,62 @@ def vista_archivos() -> None:
 
             condicion_enviar = archivo is not None and llave_priv_file is not None
             
-            col_btn1, col_btn2 = st.columns(2)
+            st.markdown("---")
+            st.markdown("##### Acciones del Protocolo y Simulación de Ataques")
             
-            with col_btn1:
-                if st.button("Cifrar, Firmar y Enviar", type="primary", disabled=not condicion_enviar, use_container_width=True):
+            # Organizamos los tres botones de manera limpia en columnas
+            col_enviar, col_atk_replay, col_atk_mitm = st.columns(3)
+            
+            with col_enviar:
+                if st.button("🚀 Cifrar, Firmar y Enviar", type="primary", disabled=not condicion_enviar, use_container_width=True):
                     with st.spinner("Procesando criptografía real..."):
                         try:
+                            # Leer contenido y rebobinar para mantenerlo en memoria
                             contenido_archivo = archivo.read()
+                            archivo.seek(0) # Rebobinar para evitar que se quede vacío si se vuelve a usar
+                            
                             pem_priv_firma = llave_priv_file.read()
+                            llave_priv_file.seek(0) # Rebobinar
                             
                             pem_pub_cifrado_receptor = obtener_llave_publica_cifrado(destinatario)
                             if not pem_pub_cifrado_receptor:
                                 registrar_log("ERROR", "LLAVE_DESCONOCIDA", st.session_state["usuario"], f"Intento de envío fallido: El usuario '{destinatario}' no tiene llaves públicas registradas.")
                                 st.error(f"El destinatario {destinatario} no ha generado sus llaves públicas aún.")
-                                return
-
-                            paquete_json = crypto.proteger_archivo(
-                                contenido_archivo=contenido_archivo,
-                                nombre_archivo=archivo.name,
-                                pem_priv_firma_emisor=pem_priv_firma,
-                                pem_pub_cifrado_receptor=pem_pub_cifrado_receptor,
-                                passphrase_emisor=passphrase_emisor if passphrase_emisor else None
-                            )
-                            
-                            # Guardamos el paquete en la memoria temporal para poder clonarlo en el ataque simulado
-                            st.session_state["ultimo_paquete_interceptado"] = paquete_json
-                            st.session_state["ultimo_destinatario_interceptado"] = destinatario
-                            
-                            guardado_exitoso = guardar_paquete_archivo(st.session_state["usuario"], destinatario, paquete_json)
-                            
-                            if guardado_exitoso:
-                                registrar_log("INFO", "ENVIO_ARCHIVO", st.session_state["usuario"], f"Archivo '{archivo.name}' cifrado y enviado con éxito a {destinatario}")
-                                st.success(f"¡Archivo **{archivo.name}** enviado con éxito!")
                             else:
-                                registrar_log("CRITICAL", "INTENTO_REPETICION", st.session_state["usuario"], f"ATAQUE DETECTADO: Se rechazó un paquete repetido para {destinatario}.")
-                                st.error("⚠️ Error Crítico de Seguridad: Intento de ataque de repetición detectado.")
+                                paquete_json = crypto.proteger_archivo(
+                                    contenido_archivo=contenido_archivo,
+                                    nombre_archivo=archivo.name,
+                                    pem_priv_firma_emisor=pem_priv_firma,
+                                    pem_pub_cifrado_receptor=pem_pub_cifrado_receptor,
+                                    passphrase_emisor=passphrase_emisor if passphrase_emisor else None
+                                )
                                 
+                                # Guardamos las variables necesarias en caché de sesión para alimentar las simulaciones
+                                st.session_state["ultimo_paquete_interceptado"] = paquete_json
+                                st.session_state["ultimo_destinatario_interceptado"] = destinatario
+                                st.session_state["contenido_original_enviado"] = contenido_archivo
+                                st.session_state["nombre_archivo_enviado"] = archivo.name
+                                
+                                guardado_exitoso = guardar_paquete_archivo(st.session_state["usuario"], destinatario, paquete_json)
+                                
+                                if guardado_exitoso:
+                                    registrar_log("INFO", "ENVIO_ARCHIVO", st.session_state["usuario"], f"Archivo '{archivo.name}' cifrado y enviado con éxito a {destinatario}")
+                                    st.success(f"¡Archivo **{archivo.name}** enviado con éxito!")
+                                else:
+                                    registrar_log("CRITICAL", "INTENTO_REPETICION", st.session_state["usuario"], f"ATAQUE DETECTADO: Se rechazó un paquete repetido para {destinatario}.")
+                                    st.error("⚠️ Error Crítico de Seguridad: Intento de ataque de repetición detectado.")
+                                    
                         except Exception as e:
                             registrar_log("ERROR", "FALLO_ENVIO", st.session_state["usuario"], f"Error al enviar: {str(e)}")
                             st.error(f"Error criptográfico: {str(e)}.")
 
-            with col_btn2:
-                # BOTÓN EN MEMORIA PARA SIMULAR AL ATACANTE (Bypassea la encriptación y reenvía el texto exacto anterior)
-                tiene_paquete = "ultimo_paquete_interceptado" in st.session_state
-                if st.button("💥 Reinyectar Paquete Interceptado (Atacar)", type="secondary", disabled=not tiene_paquete, use_container_width=True):
-                    st.warning("Simulando atacante de red re-inyectando bytes clonados...")
+            # Habilitar simulaciones únicamente si ya se ha enviado un archivo en la sesión actual
+            tiene_paquete = "ultimo_paquete_interceptado" in st.session_state
+
+            with col_atk_replay:
+                if st.button("💥 Ataque Replay", disabled=not tiene_paquete, use_container_width=True, help="Reinyecta exactamente el mismo paquete interceptado"):
+                    st.warning("Simulando atacante inyectando paquete clonado...")
                     
-                    # Intentamos guardar EXACTAMENTE el mismo JSON anterior sin generar nonces nuevos
                     ataque_exitoso = guardar_paquete_archivo(
                         st.session_state["usuario"], 
                         st.session_state["ultimo_destinatario_interceptado"], 
@@ -266,65 +274,158 @@ def vista_archivos() -> None:
                     )
                     
                     if not ataque_exitoso:
-                        # AQUÍ SE DETECTA EL ATAQUE REAL
                         registrar_log("CRITICAL", "INTENTO_REPETICION", st.session_state["usuario"], f"ATAQUE DETECTADO: Se bloqueó la re-inyección de un paquete clonado dirigido a {st.session_state['ultimo_destinatario_interceptado']}.")
                         st.error("⚠️ La base de datos rechazó el paquete clonado porque el Nonce ya fue utilizado en el sistema. Ataque neutralizado.")
                     else:
                         st.success("El paquete clonado pasó (Esto no debería pasar si los Nonces están activos).")
 
+            with col_atk_mitm:
+                if st.button("🥷 Alterar Contenido", type="secondary", disabled=not tiene_paquete, use_container_width=True, help="Simula interceptar el archivo y alterar el monto de 100 a 900 en tránsito"):
+                    st.warning("🕵️‍♂️ Simulando Man-in-the-Middle: Interceptando el mensaje...")
+                    try:
+                        # Leer el texto plano que iba viajando para alterarlo maliciosamente
+                        texto_original = st.session_state["contenido_original_enviado"].decode('utf-8', errors='ignore')
+                        
+                        # Si el archivo original contiene "$100" o "100", hacemos el cambiazo del atacante
+                        if "100" in texto_original:
+                            texto_alterado = texto_original.replace("100", "900")
+                        else:
+                            texto_alterado = texto_original + "\n[MODIFICACIÓN MALICIOSA: Pagar $900 a Bob]"
+                        
+                        st.code(f"Contenido manipulado en tránsito por el atacante:\n'{texto_alterado}'", language="text")
+                        
+                        # Importar cargador para recuperar la llave pública del emisor y validar
+                        from cryptography.hazmat.primitives import serialization
+                        pub_key_pem = obtener_llave_publica_firma(st.session_state["usuario"])
+                        pub_key = serialization.load_pem_public_key(pub_key_pem)
+                        
+                        # Extraer la firma digital original que iba dentro del paquete interceptado
+                        import json
+                        paquete_dic = json.loads(st.session_state["ultimo_paquete_interceptado"])
+                        firma_original = bytes.fromhex(paquete_dic["firma_digital"])
+                        
+                        # El receptor intenta verificar la firma original de Alice usando el texto que alteró el hacker
+                        pub_key.verify(firma_original, texto_alterado.encode('utf-8'))
+                        st.success("Firma válida (La integridad falló al no detectar la alteración)")
+                        
+                    except Exception as e:
+                        # La ecuación de Ed25519 falla de forma segura al detectar la alteración de bytes
+                        registrar_log("ERROR", "FIRMA_INVALIDA", st.session_state["usuario"], f"MAN-IN-THE-MIDDLE DETECTADO: Se alteró el contenido del archivo '{st.session_state['nombre_archivo_enviado']}' en tránsito. Firma digital inválida.")
+                        st.error("❌ ¡ATAQUE DETECTADO! La firma digital Ed25519 no coincide con los datos modificados en tránsito. Transacción rechazada.")
+
         with col_info:
             st.markdown("##### Flujo de protección REAL")
             st.markdown("- Se firma el archivo original usando tu llave **Ed25519**.\n- Se genera un secreto compartido mediante **X25519**.\n- Se cifra con **AES-256-GCM**.\n- Se empaquetan Nonces y marcas de tiempo.")
-    # ------------------------ Recibir y descifrar -------------------------
+    
+    # --------------------------- Recibir y descifrar ---------------------------
+    # --------------------------- Recibir y descifrar ---------------------------
     with tab_recibir:
-        st.subheader("Bandeja de entrada real (Cifrada)")
-        paquetes_reales = obtener_paquetes_recibidos(st.session_state["usuario"])
+        st.subheader("Bandeja de entrada: Recibir y descifrar")
         
-        if not paquetes_reales:
-            st.info("No tienes archivos cifrados recibidos en este momento.")
+        # Obtener paquetes dirigidos al usuario logueado
+        paquetes = obtener_paquetes_recibidos(st.session_state["usuario"])
         
-        for idx, pack in enumerate(paquetes_reales):
-            datos_json = json.loads(pack["paquete_json"])
-            
-            with st.container(border=True):
-                col_datos, col_llave, col_accion = st.columns([2, 2, 1])
+        if not paquetes:
+            st.info("No tienes archivos pendientes por recibir.")
+        else:
+            # Inicializar el diccionario de descifrados en el estado de sesión si no existe
+            if "descifrados_exitosos" not in st.session_state:
+                st.session_state["descifrados_exitosos"] = {}
+
+            # Usamos enumerate para asegurar claves totalmente únicas mediante el índice 'idx'
+            for idx, pkg in enumerate(paquetes):
+                # Obtener campos de forma segura usando .get()
+                emisor = pkg.get("Emisor") or pkg.get("emisor") or pkg.get("Remitente") or pkg.get("remitente") or "Desconocido"
+                archivo_nombre = pkg.get("Archivo") or pkg.get("archivo") or pkg.get("Nombre") or pkg.get("nombre") or "archivo.bin"
+                nonce_pkg = pkg.get("ID único / Nonce") or pkg.get("nonce") or "N/A"
+                paquete_json_str = pkg.get("Paquete original JSON") or pkg.get("paquete_json") or pkg.get("paquete")
                 
-                with col_datos:
-                    st.markdown(f"📦 **{datos_json['nombre_archivo']}**")
-                    st.caption(f"De: **{pack['remitente']}** | Enviado: {datos_json['timestamp']}")
-                
-                with col_llave:
-                    archivo_priv_cif = st.file_uploader("Tu llave privada de cifrado", key=f"priv_cif_{idx}")
-                    pass_receptor = st.text_input("Contraseña de la llave", type="password", key=f"pass_rec_{idx}")
-                
-                with col_accion:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("Descifrar y Verificar", key=f"btn_desc_{idx}", use_container_width=True, disabled=archivo_priv_cif is None):
-                        with st.spinner("Desempaquetando y validando firmas..."):
+                with st.expander(f"📦 Archivo de {emisor} ({archivo_nombre})"):
+                    st.write(f"**ID Único / Nonce:** `{nonce_pkg}`")
+                    
+                    # Usamos 'idx' en la clave para garantizar que sea única en Streamlit
+                    llave_privada_file = st.file_uploader(
+                        "Sube tu llave privada de cifrado (priv_cifrado_...pem)", 
+                        key=f"rec_key_{idx}"
+                    )
+                    passphrase = st.text_input(
+                        "Contraseña de tu llave privada", 
+                        type="password", 
+                        key=f"rec_pass_{idx}"
+                    )
+                    
+                    # Crear un contenedor vacío para mostrar los resultados de forma persistente
+                    contenedor_descarga = st.container()
+
+                    if st.button("🔓 Descifrar y verificar", key=f"btn_rec_{idx}", type="primary"):
+                        if llave_privada_file is not None:
                             try:
-                                pem_priv_cifrado = archivo_priv_cif.read()
-                                pem_pub_firma_emisor = obtener_llave_publica_firma(pack["remitente"])
+                                pem_priv = llave_privada_file.read()
+                                llave_privada_file.seek(0)
                                 
-                                contenido_original, nombre_orig = crypto.descifrar_y_verificar_archivo(
-                                    paquete_json=pack["paquete_json"],
-                                    pem_priv_cifrado_receptor=pem_priv_cifrado,
-                                    pem_pub_firma_emisor=pem_pub_firma_emisor,
-                                    passphrase_receptor=pass_receptor if pass_receptor else None
+                                # Obtener llave pública de firma del emisor para validar la integridad
+                                pem_pub_firma = obtener_llave_publica_firma(emisor)
+                                
+                                # LLAMADA CORREGIDA: Usando el nombre real de tu función en crypto.py
+                                contenido_descifrado, nombre_retornado = crypto.descifrar_y_verificar_archivo(
+                                    paquete_json=paquete_json_str,
+                                    pem_priv_cifrado_receptor=pem_priv,
+                                    pem_pub_firma_emisor=pem_pub_firma,
+                                    passphrase_receptor=passphrase if passphrase else None
                                 )
                                 
-                                # REQUISITO DE AUDITORÍA: Registro dual de éxito criptográfico
-                                registrar_log("INFO", "RECEPCION_ARCHIVO", st.session_state["usuario"], f"Descifrado exitoso del documento '{nombre_orig}'")
-                                registrar_log("INFO", "FIRMA_VALIDA", st.session_state["usuario"], f"Firma digital del remitente '{pack['remitente']}' validada en descifrado.")
-                                
-                                st.success("✨ ¡Autenticidad e Integridad confirmadas!")
-                                st.download_button(label="⬇️ Guardar Archivo Descifrado", data=contenido_original, file_name=nombre_orig, key=f"download_real_{idx}")
-                            except Exception as e:
-                                error_msg = str(e)
-                                tipo_log = "FALLO_DESCIFRADO" if "descifrado" in error_msg.lower() else "FIRMA_INVALIDA"
-                                # REQUISITO DE AUDITORÍA: Clasificación inalterable de fallos críticos
-                                registrar_log("ERROR", tipo_log, st.session_state["usuario"], f"Inconsistencia de seguridad: {error_msg}")
-                                st.error(f"Fallo en la operación: {error_msg}")
+                                if contenido_descifrado:
+                                    # Extraer la firma digital para guardarla en el estado de sesión
+                                    firma_bytes = b""
+                                    if paquete_json_str:
+                                        import base64
+                                        import json as json_lib
+                                        
+                                        paquete_dic = json_lib.loads(paquete_json_str)
+                                        firma_b64 = paquete_dic.get("firma_digital")
+                                        if firma_b64:
+                                            firma_bytes = base64.b64decode(firma_b64)
 
+                                    # Guardamos los resultados en el Session State para que no se borren al descargar
+                                    st.session_state["descifrados_exitosos"][idx] = {
+                                        "archivo_datos": contenido_descifrado,
+                                        "firma_datos": firma_bytes,
+                                        "nombre": archivo_nombre
+                                    }
+                                    registrar_log("INFO", "DESCIFRADO_EXITOSO", st.session_state["usuario"], f"El usuario descifró con éxito el archivo '{archivo_nombre}'.")
+                                    st.rerun()  # Recargamos una vez para fijar los botones en pantalla
+                                    
+                            except Exception as e:
+                                registrar_log("ERROR", "FALLO_DESCIFRADO", st.session_state["usuario"], f"Error al descifrar archivo de {emisor}: {str(e)}")
+                                st.error(f"❌ Error al descifrar: {str(e)}. Verifica tu llave y contraseña.")
+                        else:
+                            st.warning("Por favor sube tu llave privada para proceder.")
+
+                    # DIBUJAR BOTONES PERSISTENTES SI EL ARCHIVO YA FUE DESCIFRADO
+                    if idx in st.session_state["descifrados_exitosos"]:
+                        datos_guardados = st.session_state["descifrados_exitosos"][idx]
+                        
+                        with contenedor_descarga:
+                            st.success("✅ ¡Archivo descifrado y firma verificada con éxito!")
+                            
+                            # Botón para descargar el archivo original descifrado (fijo en pantalla)
+                            st.download_button(
+                                "💾 Descargar archivo original",
+                                data=datos_guardados["archivo_datos"],
+                                file_name=datos_guardados["nombre"],
+                                use_container_width=True,
+                                key=f"dl_file_{idx}"
+                            )
+                            
+                            # Botón para descargar el archivo .sig (fijo en pantalla)
+                            if datos_guardados["firma_datos"]:
+                                st.download_button(
+                                    "🔏 Descargar archivo de firma (.sig)",
+                                    data=datos_guardados["firma_datos"],
+                                    file_name=f"{datos_guardados['nombre']}.sig",
+                                    use_container_width=True,
+                                    key=f"dl_sig_{idx}"
+                                )
     # ------------------------ Archivos enviados -------------------------
     with tab_enviados:
         st.subheader("Archivos enviados")
@@ -374,7 +475,7 @@ def vista_archivos() -> None:
 
         with col_b:
             st.markdown("##### La verificación comprueba que:")
-            st.markdown("- El archivo fue enviado por el **usuario esperado**.\n- El contenido **no fue modificado**.\n- La **firma es válida** matemáticamente.")
+            st.markdown("- El archivo fue enviado por el **usuario esperado**.\n- El contenido **no fue modificado**.\n- La **firma es válida**.")
 
         if verificar:
             try:
@@ -397,7 +498,7 @@ def vista_archivos() -> None:
                     
                     # REQUISITO DE AUDITORÍA: Registro de firma válida
                     registrar_log("INFO", "FIRMA_VALIDA", st.session_state["usuario"], f"Verificación externa exitosa: Archivo '{archivo_v.name}' firmado válidamente por {emisor}.")
-                    st.success(f"✨ ¡FIRMA VÁLIDA! El archivo coincide matemáticamente con la llave Ed25519 de {emisor} y no ha sido alterado.")
+                    st.success(f"✨ ¡FIRMA VÁLIDA! El archivo coincide con la llave Ed25519 de {emisor} y no ha sido alterado.")
             except Exception as e:
                 # REQUISITO DE AUDITORÍA: Registro de firma inválida / anomalía
                 registrar_log("ERROR", "FIRMA_INVALIDA", st.session_state["usuario"], f"Fallo de verificación: La firma provista para el archivo '{archivo_v.name}' no es válida para el usuario {emisor}. Detalle: {str(e)}")
