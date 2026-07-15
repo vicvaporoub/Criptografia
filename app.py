@@ -333,7 +333,7 @@ def vista_archivos() -> None:
                         pub_key = serialization.load_pem_public_key(pub_key_pem)
                         
                         # Extraer la firma legítima original del paquete JSON interceptado
-                        import json
+                        
                         paquete_dic = json.loads(st.session_state["ultimo_paquete_interceptado"])
                         firma_original = bytes.fromhex(paquete_dic["firma_digital"])
                         
@@ -379,10 +379,11 @@ def vista_archivos() -> None:
             # Usamos enumerate para asegurar claves totalmente únicas mediante el índice 'idx'
             for idx, pkg in enumerate(paquetes):
                 # Obtener campos de forma segura usando .get()
-                emisor = pkg.get("Emisor") or pkg.get("emisor") or pkg.get("Remitente") or pkg.get("remitente") or "Desconocido"
-                archivo_nombre = pkg.get("Archivo") or pkg.get("archivo") or pkg.get("Nombre") or pkg.get("nombre") or "archivo.bin"
-                nonce_pkg = pkg.get("ID único / Nonce") or pkg.get("nonce") or "N/A"
-                paquete_json_str = pkg.get("Paquete original JSON") or pkg.get("paquete_json") or pkg.get("paquete")
+                emisor = pkg.get("remitente") or "Desconocido"
+                paquete_json= json.loads(pkg.get("paquete_json"))
+                archivo_nombre = paquete_json.get("nombre_archivo") or "unknown_name.bin"
+                nonce_pkg = paquete_json.get("nonce_gcm") or "N/A"
+                paquete_json_str =  pkg.get("paquete_json")
                 
                 with st.expander(f"📦 Archivo de {emisor} ({archivo_nombre})"):
                     st.write(f"**ID Único / Nonce:** `{nonce_pkg}`")
@@ -423,9 +424,8 @@ def vista_archivos() -> None:
                                     firma_bytes = b""
                                     if paquete_json_str:
                                         import base64
-                                        import json as json_lib
                                         
-                                        paquete_dic = json_lib.loads(paquete_json_str)
+                                        paquete_dic = json.loads(paquete_json_str)
                                         firma_b64 = paquete_dic.get("firma_digital")
                                         if firma_b64:
                                             firma_bytes = base64.b64decode(firma_b64)
