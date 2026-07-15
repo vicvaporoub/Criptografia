@@ -251,7 +251,8 @@ def es_admin(usuario):
         cursor = conn.cursor()
         cursor.execute("SELECT usuario, rol from usuarios WHERE usuario=?", (usuario,))
         row = cursor.fetchone()
-        if row is not None and row['rol']=="admin":
+        print(f"RESULTADO ES ADMIN {row}")
+        if row is not None and row['rol']=="Superusuario":
             return True
         else:
             return False

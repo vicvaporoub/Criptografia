@@ -151,7 +151,9 @@ def vista_dashboard() -> None:
     st.caption(f"Sesión activa: **{st.session_state['usuario']}** ({st.session_state['rol']})")
     
     # Cálculos reales sobre la marcha para alimentar el Dashboard analítico
+    
     es_admin_p=es_admin(st.session_state['usuario'])
+    
     if es_admin_p:
         logs=obtener_logs()
     else:
