@@ -245,6 +245,27 @@ def obtener_logs():
         cursor.execute("SELECT fecha_hora AS [Fecha y hora], nivel AS Nivel, evento AS Evento, usuario AS Usuario, detalle AS Detalle, id AS [ID evento] FROM logs_auditoria ORDER BY fecha_hora DESC")
         return [dict(row) for row in cursor.fetchall()]
 
+def es_admin(usuario):
+    """Recupera todos los logs para la vista de administración."""
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT usuario, rol from usuarios WHERE usuario=?", (usuario,))
+        row = cursor.fetchone()
+        print(f"RESULTADO ES ADMIN {row}")
+        if row is not None and row['rol']=="Superusuario":
+            return True
+        else:
+            return False
+
+def obtener_logs_personal(usuario):
+    """Recupera todos los logs para la vista de usuario en el panel de control."""
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT fecha_hora AS [Fecha y hora], nivel AS Nivel, evento AS Evento, usuario AS Usuario," \
+        " detalle AS Detalle, id AS [ID evento] FROM logs_auditoria WHERE usuario= ? ORDER BY fecha_hora DESC",(usuario,))
+        return [dict(row) for row in cursor.fetchall()]
+
+
 def obtener_usuarios():
     """Recupera los usuarios registrados para el panel."""
     with obtener_conexion() as conn:
