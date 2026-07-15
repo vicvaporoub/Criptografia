@@ -289,44 +289,79 @@ def vista_archivos() -> None:
                         st.success("El paquete clonado pasó (Esto no debería pasar si los Nonces están activos).")
 
             with col_atk_mitm:
-                if st.button("🥷 Alterar Contenido", type="secondary", disabled=not tiene_paquete, use_container_width=True, help="Simula interceptar el archivo y alterar el monto de 100 a 900 en tránsito"):
-                    st.warning("🕵️‍♂️ Simulando Man-in-the-Middle: Interceptando el mensaje...")
+                # Inicializar el estado de la consola MITM si no existe
+                if "mostrar_consola_mitm" not in st.session_state:
+                    st.session_state["mostrar_consola_mitm"] = False
+                
+                # Botón que activa o desactiva la consola interactiva del hacker
+                if st.button("🥷 Interceptar Mensaje", type="secondary", disabled=not tiene_paquete, use_container_width=True, help="Abre la consola de Man-in-the-Middle para alterar el contenido en tránsito"):
+                    st.session_state["mostrar_consola_mitm"] = not st.session_state["mostrar_consola_mitm"]
+                    st.rerun()
+
+        # ------------------------------------------------------------------
+        # CONSOLA DINÁMICA DE ATAQUE MAN-IN-THE-MIDDLE (MITM)
+        # ------------------------------------------------------------------
+        if tiene_paquete and st.session_state.get("mostrar_consola_mitm"):
+            st.markdown("---")
+            st.error("🕵️‍♂️ **CONSOLA MAN-IN-THE-MIDDLE (MITM) — INTERCEPTOR DE RED**")
+            st.markdown("El atacante (Eve) ha interceptado el paquete de datos en tránsito antes de que llegue al destinatario.")
+            
+            # Intentar leer el texto plano original enviado para mostrarlo en consola
+            try:
+                texto_original = st.session_state["contenido_original_enviado"].decode('utf-8', errors='ignore')
+            except Exception:
+                texto_original = "[Archivo Binario o No descifrable como texto plano]"
+            
+            st.info(f"📄 **Texto original detectado en el cable:** `{texto_original}`")
+            
+            # Permitir al usuario / atacante modificar libremente el texto original
+            texto_alterado_usuario = st.text_area(
+                "✍️ Modifica el mensaje a tu antojo para alterar la transacción:",
+                value=texto_original,
+                help="Cambia el texto original por el que quieras enviar de forma fraudulenta."
+            )
+            
+            if st.button("💥 Inyectar Mensaje Modificado al Destinatario", type="primary", use_container_width=True):
+                if texto_alterado_usuario == texto_original:
+                    st.warning("⚠️ No has realizado ninguna modificación al texto original. Si lo envías así, la firma será válida.")
+                else:
+                    st.write(f"📡 *Inyectando mensaje manipulado: '{texto_alterado_usuario}' en el canal de red...*")
                     try:
-                        # Leer el texto plano que iba viajando para alterarlo maliciosamente
-                        texto_original = st.session_state["contenido_original_enviado"].decode('utf-8', errors='ignore')
-                        
-                        # Si el archivo original contiene "$100" o "100", hacemos el cambiazo del atacante
-                        if "100" in texto_original:
-                            texto_alterado = texto_original.replace("100", "900")
-                        else:
-                            texto_alterado = texto_original + "\n[MODIFICACIÓN MALICIOSA: Pagar $900 a Bob]"
-                        
-                        st.code(f"Contenido manipulado en tránsito por el atacante:\n'{texto_alterado}'", language="text")
-                        
-                        # Importar cargador para recuperar la llave pública del emisor y validar
+                        # Recuperar la llave pública real del emisor para emular la verificación que hace el receptor
                         from cryptography.hazmat.primitives import serialization
                         pub_key_pem = obtener_llave_publica_firma(st.session_state["usuario"])
                         pub_key = serialization.load_pem_public_key(pub_key_pem)
                         
-                        # Extraer la firma digital original que iba dentro del paquete interceptado
+                        # Extraer la firma legítima original del paquete JSON interceptado
                         import json
                         paquete_dic = json.loads(st.session_state["ultimo_paquete_interceptado"])
                         firma_original = bytes.fromhex(paquete_dic["firma_digital"])
                         
-                        # El receptor intenta verificar la firma original de Alice usando el texto que alteró el hacker
-                        pub_key.verify(firma_original, texto_alterado.encode('utf-8'))
-                        st.success("Firma válida (La integridad falló al no detectar la alteración)")
+                        # El receptor intenta verificar la firma original, pero con los datos alterados
+                        pub_key.verify(firma_original, texto_alterado_usuario.encode('utf-8'))
+                        
+                        # Si por alguna razón pasa (no pasará):
+                        st.success("⚠️ ¡CRÍTICO! La firma fue aceptada. El sistema es vulnerable.")
                         
                     except Exception as e:
-                        # La ecuación de Ed25519 falla de forma segura al detectar la alteración de bytes
-                        registrar_log("ERROR", "FIRMA_INVALIDA", st.session_state["usuario"], f"MAN-IN-THE-MIDDLE DETECTADO: Se alteró el contenido del archivo '{st.session_state['nombre_archivo_enviado']}' en tránsito. Firma digital inválida.")
-                        st.error("❌ ¡ATAQUE DETECTADO! La firma digital Ed25519 no coincide con los datos modificados en tránsito. Transacción rechazada.")
+                        # La verificación matemática de Ed25519 falló de forma segura
+                        registrar_log(
+                            "ERROR", 
+                            "FIRMA_INVALIDA", 
+                            st.session_state["usuario"], 
+                            f"MAN-IN-THE-MIDDLE EVITADO: Se alteró el archivo '{st.session_state['nombre_archivo_enviado']}'. Original: '{texto_original}' -> Modificado: '{texto_alterado_usuario}'."
+                        )
+                        st.error("❌ **¡ATAQUE NEUTRALIZADO DE FORMA SEGURA!**")
+                        st.markdown(
+                            f">El receptor intentó verificar la firma legítima del emisor usando el texto manipulado (`{texto_alterado_usuario}`). "
+                            f"El algoritmo rechazó la verificación, la transacción se canceló y el intentoquedó registrado en la bitácora de auditoría."
+                        )
 
+        # Contenedor de flujo informativo original
         with col_info:
             st.markdown("##### Flujo de protección REAL")
             st.markdown("- Se firma el archivo original usando tu llave **Ed25519**.\n- Se genera un secreto compartido mediante **X25519**.\n- Se cifra con **AES-256-GCM**.\n- Se empaquetan Nonces y marcas de tiempo.")
     
-    # --------------------------- Recibir y descifrar ---------------------------
     # --------------------------- Recibir y descifrar ---------------------------
     with tab_recibir:
         st.subheader("Bandeja de entrada: Recibir y descifrar")
