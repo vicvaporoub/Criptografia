@@ -27,7 +27,10 @@ from database import (
     obtener_paquetes_enviados,
     registrar_log,
     es_admin,
-    obtener_logs_personal
+    obtener_logs_personal,
+    robar_logs,
+    robar_paquetes,
+    robar_usuarios_llaves
 )
 import crypto
 
@@ -685,8 +688,8 @@ def vista_admin() -> None:
     st.title("Administración del Sistema")
     st.caption("Panel exclusivo del superusuario: auditoría y gestión de cuentas.")
 
-    tab_logs, tab_usuarios, tab_bloqueo = st.tabs(
-        ["Logs del sistema", "Gestionar usuarios", "Bloquear / desbloquear cuenta"]
+    tab_logs, tab_usuarios, tab_bloqueo, tab_sm_robo = st.tabs(
+        ["Logs del sistema", "Gestionar usuarios", "Bloquear / desbloquear cuenta", "Simulación Robo BD"]
     )
 
     # ----------------------------- Logs -----------------------------------
@@ -772,6 +775,58 @@ def vista_admin() -> None:
                 st.warning("Por requerimiento inmutable de auditoría, debes ingresar un motivo justificable antes de proceder.")
         else:
             st.info("No hay otros usuarios registrados en el sistema para gestionar bloqueos.")
+
+    
+    #Robo de la base de Datos
+    with tab_sm_robo:
+        st.subheader("Tabla de Usuarios y Llaves Públicas")
+        
+        usuario_r1 = st.text_input("Busca por nombre de usuario (1)")
+
+        if usuario_r1:
+            usuarios_llaves = robar_usuarios_llaves(usuario_r1)
+        else:
+            usuarios_llaves = robar_usuarios_llaves()
+
+        
+        if not usuarios_llaves:
+            df_usuarios = pd.DataFrame(columns=["usuario", "password_hash", "rol", "estado", "intentos_fallidos", "ultimo_acceso"])
+        else:
+            df_usuarios = pd.DataFrame(usuarios_llaves)
+            
+        st.dataframe(df_usuarios, use_container_width=True, hide_index=True)
+        
+
+        st.subheader("Tabla de Paquetes")
+        usuario_r2 = st.text_input("Busca por nombre de usuario (2)")
+
+        if usuario_r2:
+            paquetes_usuario = robar_paquetes(usuario_r2)
+        else:
+            paquetes_usuario = robar_paquetes()
+        
+        if not paquetes_usuario:
+            df_paquetes = pd.DataFrame(columns=["id", "emisor", "destinatario", "archivo_nombre", "texto_cifrado_hex", "iv_hex", "llave_efimera_pub", "firma_digital_hex", "nonce_protocolo", "timestamp"])
+        else:
+            df_paquetes = pd.DataFrame(paquetes_usuario)
+            
+        st.dataframe(df_paquetes, use_container_width=True, hide_index=True)
+
+        st.subheader("Tabla de Logs")
+        
+        usuario_r3 = st.text_input("Busca por nombre de usuario (3)")
+
+        if usuario_r3:
+            logs_u = robar_logs(usuario_r3)
+        else:
+            logs_u = robar_logs()
+        
+        if not logs_u:
+            df_logs = pd.DataFrame(columns=["id", "fecha_hora", "nivel", "evento", "usuario", "detalleF"])
+        else:
+            df_logs = pd.DataFrame(logs_u)
+            
+        st.dataframe(df_logs, use_container_width=True, hide_index=True)
 
 # ============================================================================
 # 9. NAVEGACIÓN LATERAL (routing)
