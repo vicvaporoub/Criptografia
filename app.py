@@ -30,7 +30,8 @@ from database import (
     obtener_logs_personal,
     robar_logs,
     robar_paquetes,
-    robar_usuarios_llaves
+    robar_usuarios_llaves,
+    robar_usuarios
 )
 import crypto
 
@@ -688,8 +689,8 @@ def vista_admin() -> None:
     st.title("Administración del Sistema")
     st.caption("Panel exclusivo del superusuario: auditoría y gestión de cuentas.")
 
-    tab_logs, tab_usuarios, tab_bloqueo, tab_sm_robo = st.tabs(
-        ["Logs del sistema", "Gestionar usuarios", "Bloquear / desbloquear cuenta", "Simulación Robo BD"]
+    tab_logs, tab_usuarios, tab_bloqueo, tab_sm_robo, tab_mim = st.tabs(
+        ["Logs del sistema", "Gestionar usuarios", "Bloquear / desbloquear cuenta", "Simulación Robo BD", "Simulacion MITM"]
     )
 
     # ----------------------------- Logs -----------------------------------
@@ -779,6 +780,25 @@ def vista_admin() -> None:
     
     #Robo de la base de Datos
     with tab_sm_robo:
+        st.text("Lo que podría ver la persona que se robe la base de datos")
+
+        st.subheader("Tabla de Usuarios")
+        
+        usuario_r0 = st.text_input("Busca por nombre de usuario (0)")
+
+        if usuario_r0:
+            usuarios_ent = robar_usuarios(usuario_r0)
+        else:
+            usuarios_ent = robar_usuarios()
+
+        
+        if not usuarios_ent:
+            df_usuarios = pd.DataFrame(columns=["usuario", "password_hash", "rol", "estado", "intentos_fallidos", "ultimo_acceso"])
+        else:
+            df_usuarios = pd.DataFrame(usuarios_ent)
+            
+        st.dataframe(df_usuarios, use_container_width=True, hide_index=True)
+
         st.subheader("Tabla de Usuarios y Llaves Públicas")
         
         usuario_r1 = st.text_input("Busca por nombre de usuario (1)")
@@ -790,12 +810,12 @@ def vista_admin() -> None:
 
         
         if not usuarios_llaves:
-            df_usuarios = pd.DataFrame(columns=["usuario", "password_hash", "rol", "estado", "intentos_fallidos", "ultimo_acceso"])
+            df_usuarios_llave = pd.DataFrame(columns=["usuario", "password_hash", "rol", "estado", "intentos_fallidos", "ultimo_acceso"])
         else:
-            df_usuarios = pd.DataFrame(usuarios_llaves)
+            df_usuarios_llave = pd.DataFrame(usuarios_llaves)
             
-        st.dataframe(df_usuarios, use_container_width=True, hide_index=True)
-        
+        st.dataframe(df_usuarios_llave, use_container_width=True, hide_index=True)
+
 
         st.subheader("Tabla de Paquetes")
         usuario_r2 = st.text_input("Busca por nombre de usuario (2)")
@@ -827,6 +847,22 @@ def vista_admin() -> None:
             df_logs = pd.DataFrame(logs_u)
             
         st.dataframe(df_logs, use_container_width=True, hide_index=True)
+
+    with tab_mim:
+        st.subheader("Información expuesta sin TLS y con clientes que ejecuten encriptado y firmado")
+        paquete_rob = robar_paquetes()
+        
+        if not paquete_rob:
+            df_mitm = pd.DataFrame(columns=["Usuario", "Rol", "Estado", "Último acceso"])
+        else:
+            df_mitm_p = pd.DataFrame(paquete_rob)
+            df_mitm=df_mitm_p.iloc[[0]]
+
+        df_vista = df_mitm.T.reset_index()
+        df_vista.columns = ["Campo", "Valor"]
+
+        st.dataframe(df_vista, use_container_width=True, hide_index=True)
+        
 
 # ============================================================================
 # 9. NAVEGACIÓN LATERAL (routing)

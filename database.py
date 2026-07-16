@@ -301,6 +301,15 @@ def eliminar_usuario(usuario):
         """,(usuario,))
         conn.commit()
 
+def robar_usuarios(usuario=None):
+    """Simulación de robar la BD, consulta de usuarios y llaves públicas."""
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        if usuario:
+            cursor.execute("SELECT * FROM usuarios WHERE usuario=?", (usuario,))
+        else:
+            cursor.execute("SELECT * FROM usuarios")
+        return [dict(row) for row in cursor.fetchall()]
 
 def robar_usuarios_llaves():
     """Simulación de robar la BD, consulta de usuarios y llaves públicas."""
