@@ -300,3 +300,46 @@ def eliminar_usuario(usuario):
             WHERE usuario=?
         """,(usuario,))
         conn.commit()
+
+def robar_usuarios(usuario=None):
+    """Simulación de robar la BD, consulta de usuarios y llaves públicas."""
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        if usuario:
+            cursor.execute("SELECT * FROM usuarios WHERE usuario=?", (usuario,))
+        else:
+            cursor.execute("SELECT * FROM usuarios")
+        return [dict(row) for row in cursor.fetchall()]
+
+def robar_usuarios_llaves():
+    """Simulación de robar la BD, consulta de usuarios y llaves públicas."""
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM usuarios, llaves_publicas WHERE usuarios.usuario = llaves_publicas.usuario")
+        return [dict(row) for row in cursor.fetchall()]
+    
+
+def robar_paquetes(usuario= None):
+    """Simulación de robar la BD, consulta de paquetes con respectivos usuarios."""
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        if not usuario:
+            cursor.execute("SELECT * FROM paquetes_archivos")
+        else:
+            cursor.execute("""SELECT *
+                                FROM paquetes_archivos
+                                WHERE emisor = ?
+                                OR destinatario = ?;""",(usuario, usuario))
+        return [dict(row) for row in cursor.fetchall()]
+    
+def robar_logs(usuario= None):
+    """Simulación de robar la BD, consulta de logs con respectivos usuarios."""
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        if not usuario:
+            cursor.execute("SELECT * FROM logs_auditoria")
+        else:
+            cursor.execute("""SELECT *
+                                FROM logs_auditoria
+                                WHERE logs_auditoria.usuario = ?""",(usuario, ))
+        return [dict(row) for row in cursor.fetchall()]
